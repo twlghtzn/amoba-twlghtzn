@@ -3,14 +3,15 @@ package com.twlghtzn.amoba.service;
 import com.twlghtzn.amoba.dto.GameStartResponse;
 import com.twlghtzn.amoba.dto.MoveRequest;
 import com.twlghtzn.amoba.dto.MoveResponse;
+import com.twlghtzn.amoba.dto.MovesDTO;
 import com.twlghtzn.amoba.model.ActualBoard;
 import com.twlghtzn.amoba.model.Component;
-import com.twlghtzn.amoba.model.Direction;
 import com.twlghtzn.amoba.model.Game;
 import com.twlghtzn.amoba.model.Move;
 import com.twlghtzn.amoba.util.Dir;
 import com.twlghtzn.amoba.util.Info;
 import com.twlghtzn.amoba.util.State;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -21,8 +22,8 @@ import org.springframework.stereotype.Service;
 @Service
 public class AmobaService {
 
-  private Map<String, Game> boards;
-  private int boardSize;
+  private final Map<String, Game> boards;
+  private final int boardSize;
 
   @Autowired
   public AmobaService() {
@@ -30,7 +31,8 @@ public class AmobaService {
     boardSize = 20;
   }
 
-  // region    -------------- setup & moves ----------------
+// region    -------------- setup & moves ----------------
+
   public String generateGameId() {
     return UUID.randomUUID().toString();
   }
@@ -45,11 +47,6 @@ public class AmobaService {
 
     boards.put(id, game);
 
-    ActualBoard actualBoard = generateActualBoard(id);
-    game.setActualBoard(actualBoard);
-
-    boards.put(id, game);
-
     return new GameStartResponse(id);
   }
 
@@ -57,7 +54,7 @@ public class AmobaService {
 
     List<Move> moves = boards.get(id).getMoves();
     ActualBoard actualBoard = new ActualBoard(boardSize);
-    Map<String, Enum<Info>> fields = actualBoard.getFields();
+    Map<String, Info> fields = actualBoard.getFields();
 
     for (Move move : moves) {
       fields.put(move.getValX() + "." + move.getValY(), move.getInfo());
@@ -66,20 +63,17 @@ public class AmobaService {
     return actualBoard;
   }
 
-  public ActualBoard updateActualBoard(ActualBoard actualBoard, int valX, int valY,
-                                       Enum<Info> info) {
-    Map<String, Enum<Info>> fields = actualBoard.getFields();
-    fields.put(valX + "." + valY, info);
-    actualBoard.setFields(fields);
-    return actualBoard;
-  }
-
-  public Game getGameById(String id) {
-    if (boards.containsKey(id)) {
-      return boards.get(id);
-    } else {
-      throw new IllegalArgumentException("Invalid game id");
+  public MovesDTO generateMovesDTO(String id) {
+    ActualBoard actualBoard = generateActualBoard(id);
+    MovesDTO movesDTO = new MovesDTO();
+    Map<String, Info> actualMoves = new HashMap<>();
+    for (Map.Entry<String, Info> field : actualBoard.getFields().entrySet()) {
+      if (!field.getValue().equals(Info.EMPTY)) {
+        actualMoves.put(field.getKey(), field.getValue());
+      }
     }
+    movesDTO.setMoves(actualMoves);
+    return movesDTO;
   }
 
   public MoveResponse saveMove(MoveRequest moveRequest) {
@@ -87,24 +81,21 @@ public class AmobaService {
     String id = moveRequest.getId();
     int valX = moveRequest.getValX();
     int valY = moveRequest.getValY();
-    Enum<Info> info = evaluatePlayerInfo(moveRequest.getPlayer());
+    Info info = getPlayerFromString(moveRequest.getPlayer());
+
     if (isMoveAllowed(id, valX, valY, info)) {
       Move move = new Move(valX, valY, info);
       Game game = boards.get(id);
+
+      addNewConnections(valX, valY, info, id);
 
       List<Move> moves = game.getMoves();
       moves.add(move);
       game.setMoves(moves);
 
-      ActualBoard oldBoard = game.getActualBoard();
-      ActualBoard actualBoard = updateActualBoard(oldBoard, valX, valY, info);
-      game.setActualBoard(actualBoard);
-
       boards.put(id, game);
 
-      addNewConnections(valX, valY, info, actualBoard, id);
-
-      Enum<State> state = checkIfTheresAWinner(game);
+      State state = checkIfTheresAWinner(game);
 
       if (state.equals(State.BLUE_WON)) {
         return new MoveResponse("-", "Move saved, Blue won");
@@ -126,7 +117,7 @@ public class AmobaService {
     }
   }
 
-  public Enum<Info> evaluatePlayerInfo(String player) {
+  public Info getPlayerFromString(String player) {
     if (player.equals("BLUE")) {
       return Info.BLUE;
     } else if (player.equals("RED")) {
@@ -161,10 +152,9 @@ public class AmobaService {
         valY >= 0;
   }
 
-  public boolean isMoveAllowed(String id, int valX, int valY, Enum<Info> info) {
-    Game game = getGameById(id);
-    ActualBoard actualBoard = game.getActualBoard();
-    Map<String, Enum<Info>> fields = actualBoard.getFields();
+  public boolean isMoveAllowed(String id, int valX, int valY, Info info) {
+    ActualBoard actualBoard = generateActualBoard(id);
+    Map<String, Info> fields = actualBoard.getFields();
     if (!isPlayerAllowed(id, info)) {
       throw new IllegalArgumentException("It's not your turn");
     }
@@ -174,7 +164,7 @@ public class AmobaService {
     return true;
   }
 
-  public boolean isPlayerAllowed(String id, Enum<Info> info) {
+  public boolean isPlayerAllowed(String id, Info info) {
     List<Move> moves = boards.get(id).getMoves();
     if (moves.size() != 0) {
       Move lastMove = moves.get(moves.size() - 1);
@@ -184,51 +174,54 @@ public class AmobaService {
   }
   // endregion
 
-  public void addNewConnections(int valX, int valY, Enum<Info> color,
-                                        ActualBoard actualBoard, String id) {
+  public void addNewConnections(int valX, int valY, Info color, String id) {
     Game game = boards.get(id);
-    Map<String, Enum<Dir>> neighbors = generateNeighbouringFieldsNames(valX, valY);
-    Map<String, Enum<Info>> fields = actualBoard.getFields();
+    Map<String, Dir> neighbors = generateNeighbouringFieldsNames(valX, valY);
+    List<Move> moves = game.getMoves();
+    List<Component> components = game.getComponents();
 
-    for (Map.Entry<String, Enum<Dir>> neighbor : neighbors.entrySet()) {
-      if (fields.get(neighbor.getKey()).equals(color)) {
-        Enum<Dir> dir = neighbor.getValue();
-        Direction direction = game.getDirectionByName(dir);
-        List<Component> components = direction.getComponents();
-        for (Component component : components) {
-          if (component.getColor().equals(color.toString()) &&
-              component.getFields().contains(neighbor.getKey())) {
-            List<String> componentFields = component.getFields();
-            componentFields.add(valX + "." + valY);
-            component.setFields(componentFields);
-          } else {
-            Component newComponent = new Component(color.toString());
-            List<String> newFields = newComponent.getFields();
-            newFields.add(neighbor.getKey());
-            newFields.add(valX + "." + valY);
-            newComponent.setFields(newFields);
+    for (Map.Entry<String, Dir> neighbor : neighbors.entrySet()) {
+      for (Move move : moves) {
+        if (neighbor.getKey().equals(move.getValX() + "." + move.getValY())) {
+          if (move.getInfo().equals(color)) {
+            if (components.size() != 0) {
+              for (int i = 0; i < components.size(); i++) {
+                if (components.get(i).getFields().contains(neighbor.getKey())) {
+                  Component component = components.get(i);
+                  List<String> componentFields = component.getFields();
+                  componentFields.add(valX + "." + valY);
+                  component.setFields(componentFields);
+                } else {
+                  Component newComponent =
+                      createNewComponent(color, neighbor.getKey(), valX, valY, neighbor.getValue());
+                  components.add(newComponent);
+                }
+              }
+            } else {
+              Component newComponent =
+                  createNewComponent(color, neighbor.getKey(), valX, valY, neighbor.getValue());
+              components.add(newComponent);
+            }
           }
         }
-        direction.setComponents(components);
-        updateDirection(game, direction);
-        boards.put(id, game);
       }
     }
+    game.setComponents(components);
+    boards.put(id, game);
   }
 
-  public void updateDirection(Game game, Direction direction) {
-    Enum<Dir> name = direction.getName();
-    List<Direction> connections = game.getConnections();
-    for (Direction dir : connections) {
-      if (dir.getName().equals(name)) {
-        connections.remove(dir);
-        connections.add(direction);
-      }
-    }
+  public Component createNewComponent(Info color, String field, int valX, int valY, Dir direction) {
+    Component newComponent = new Component(color);
+    List<String> fields = new ArrayList<>();
+    fields.add(field);
+    fields.add(valX + "." + valY);
+    newComponent.setFields(fields);
+    newComponent.setDirection(direction);
+    return newComponent;
   }
 
-  public Map<String, Enum<Dir>> generateNeighbouringFieldsNames(int valX, int valY) {
-    Map<String, Enum<Dir>> neighbors = new HashMap<>();
+  public Map<String, Dir> generateNeighbouringFieldsNames(int valX, int valY) {
+    Map<String, Dir> neighbors = new HashMap<>();
     int leftColumnX = valX - 1;
     int rightColumnX = valX + 1;
     int topRowY = valY - 1;
@@ -245,22 +238,17 @@ public class AmobaService {
     return neighbors;
   }
 
-  public Enum<State> checkIfTheresAWinner(Game game) {
-    String winnerColor = "";
-    List<Direction> connections = game.getConnections();
-    for (Direction direction : connections) {
-      List<Component> components = direction.getComponents();
-      for (Component component : components) {
-        List<String> fields = component.getFields();
-        if (fields.size() > 5) {
-          winnerColor = component.getColor();
+  public State checkIfTheresAWinner(Game game) {
+    List<Component> components = game.getComponents();
+    for (Component component : components) {
+      if (component.getFields().size() > 4) {
+        Info color = component.getColor();
+        if (color.equals(Info.BLUE)) {
+          return State.BLUE_WON;
+        } else if (color.equals(Info.RED)) {
+          return State.RED_WON;
         }
       }
-    }
-    if (winnerColor.equals("BLUE")) {
-      return State.BLUE_WON;
-    } else if (winnerColor.equals("RED")) {
-      return State.RED_WON;
     }
     return State.ONGOING;
   }

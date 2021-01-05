@@ -12,9 +12,9 @@ public class Move {
 
   private int valX;
   private int valY;
-  private Enum<Info> info;
+  private Info info;
 
-  public Move(int valX, int valY, Enum<Info> info) {
+  public Move(int valX, int valY, Info info) {
     this.valX = valX;
     this.valY = valY;
     this.info = info;

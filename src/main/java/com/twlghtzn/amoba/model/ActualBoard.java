@@ -12,7 +12,7 @@ import lombok.Setter;
 @Setter
 public class ActualBoard {
 
-  private Map<String, Enum<Info>> fields;
+  private Map<String, Info> fields;
 
   public ActualBoard(int boardSize) {
     fields = new HashMap<>();

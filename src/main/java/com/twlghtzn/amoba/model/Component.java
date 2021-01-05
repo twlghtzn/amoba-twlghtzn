@@ -1,5 +1,7 @@
 package com.twlghtzn.amoba.model;
 
+import com.twlghtzn.amoba.util.Dir;
+import com.twlghtzn.amoba.util.Info;
 import java.util.ArrayList;
 import java.util.List;
 import lombok.Getter;
@@ -11,14 +13,12 @@ import lombok.Setter;
 @Setter
 public class Component {
 
+  private Dir direction;
+  private Info color;
   private List<String> fields;
 
-  public Component(String color) {
+  public Component(Info color) {
     fields = new ArrayList<>();
-    fields.add(0, color);
-  }
-
-  public String getColor() {
-    return fields.get(0);
+    this.color = color;
   }
 }

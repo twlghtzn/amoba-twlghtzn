@@ -4,6 +4,7 @@ import com.twlghtzn.amoba.dto.GameStartResponse;
 import com.twlghtzn.amoba.dto.MoveRequest;
 import com.twlghtzn.amoba.dto.MoveResponse;
 import com.twlghtzn.amoba.dto.MovesDTO;
+import com.twlghtzn.amoba.exceptionhandling.RequestIncorrectException;
 import com.twlghtzn.amoba.model.ActualBoard;
 import com.twlghtzn.amoba.model.Component;
 import com.twlghtzn.amoba.model.Game;
@@ -132,16 +133,16 @@ public class AmobaService {
 
   public void checkRequest(MoveRequest moveRequest) {
     if (moveRequest.getId() == null) {
-      throw new IllegalArgumentException("Id missing");
+      throw new RequestIncorrectException("Id missing");
     }
     if (moveRequest.getValX() == null || moveRequest.getValY() == null) {
-      throw new IllegalArgumentException("Move coordinates missing");
+      throw new RequestIncorrectException("Move coordinates missing");
     }
     if (!areMoveCoordinatesInsideBoard(moveRequest.getValX(), moveRequest.getValY())) {
-      throw new IllegalArgumentException("Move coordinates outside board");
+      throw new RequestIncorrectException("Move coordinates outside board");
     }
     if (moveRequest.getPlayer() == null) {
-      throw new IllegalArgumentException("Player info missing");
+      throw new RequestIncorrectException("Player info missing");
     }
   }
 
@@ -156,10 +157,10 @@ public class AmobaService {
     ActualBoard actualBoard = generateActualBoard(id);
     Map<String, Info> fields = actualBoard.getFields();
     if (!isPlayerAllowed(id, info)) {
-      throw new IllegalArgumentException("It's not your turn");
+      throw new RequestIncorrectException("It's not your turn");
     }
     if (!fields.get(valX + "." + valY).equals(Info.EMPTY)) {
-      throw new IllegalArgumentException("This field is occupied");
+      throw new RequestIncorrectException("This field is occupied");
     }
     return true;
   }

@@ -4,6 +4,7 @@ import com.twlghtzn.amoba.dto.GameStartResponse;
 import com.twlghtzn.amoba.dto.MoveRequest;
 import com.twlghtzn.amoba.dto.MoveResponse;
 import com.twlghtzn.amoba.service.AmobaService;
+import org.omg.CosNaming.NamingContextPackage.NotFound;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -31,23 +32,13 @@ public class MainController {
   }
 
   @PutMapping("/move")
-  public ResponseEntity<?> move(@RequestBody MoveRequest moveRequest) {
+  public ResponseEntity<?> move(@RequestBody MoveRequest moveRequest) throws NotFound {
     MoveResponse moveResponse = amobaService.saveMove(moveRequest);
-    String status = moveResponse.getStatus();
-    if (status.contains("Move saved")) {
-      return ResponseEntity.status(HttpStatus.OK).body(moveResponse);
-    } else {
-      return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
-    }
-  }
-
-  @GetMapping("/game/{id}")
-  public ResponseEntity<?> board(@PathVariable(name = "id") String id) {
-    return ResponseEntity.status(HttpStatus.OK).body(amobaService.generateActualBoard(id));
+    return ResponseEntity.status(HttpStatus.OK).body(moveResponse);
   }
 
   @GetMapping("/game/{id}/moves")
   public ResponseEntity<?> moves(@PathVariable(name = "id") String id) {
-    return ResponseEntity.status(HttpStatus.OK).body(amobaService.generateMovesDTO(id));
+    return ResponseEntity.status(HttpStatus.OK).body(amobaService.generateMovesView(id));
   }
 }

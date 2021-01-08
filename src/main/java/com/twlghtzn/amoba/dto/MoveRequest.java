@@ -12,12 +12,12 @@ public class MoveRequest {
   private Integer valX;
   private Integer valY;
   private String id;
-  private String player;
+  private String color;
 
-  public MoveRequest(Integer valX, Integer valY, String id, String player) {
+  public MoveRequest(Integer valX, Integer valY, String id, String color) {
     this.valX = valX;
     this.valY = valY;
     this.id = id;
-    this.player = player;
+    this.color = color;
   }
 }

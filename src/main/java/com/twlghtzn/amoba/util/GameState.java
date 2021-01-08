@@ -1,7 +1,8 @@
 package com.twlghtzn.amoba.util;
 
-public enum State {
+public enum GameState {
   BLUE_WON,
   RED_WON,
-  ONGOING
+  BLUE_NEXT,
+  RED_NEXT
 }

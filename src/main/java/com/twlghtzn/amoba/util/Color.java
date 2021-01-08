@@ -1,7 +1,7 @@
 package com.twlghtzn.amoba.util;
 
-public enum Info {
+public enum Color {
   BLUE,
   RED,
-  EMPTY
+  NONE
 }

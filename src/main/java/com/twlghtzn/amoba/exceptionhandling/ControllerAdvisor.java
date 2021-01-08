@@ -12,7 +12,7 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 public class ControllerAdvisor extends ResponseEntityExceptionHandler {
 
   @ExceptionHandler(RequestIncorrectException.class)
-  public ResponseEntity<Object> handleCredentialAlreadyInUseException(
+  public ResponseEntity<Object> handleRequestIncorrectException(
       RequestIncorrectException ex) {
     Map<String, Object> body = new LinkedHashMap<>();
     String message = ex.getError();

@@ -3,78 +3,55 @@ package com.twlghtzn.amoba.service;
 import com.twlghtzn.amoba.dto.GameStartResponse;
 import com.twlghtzn.amoba.dto.MoveRequest;
 import com.twlghtzn.amoba.dto.MoveResponse;
-import com.twlghtzn.amoba.dto.MovesDTO;
+import com.twlghtzn.amoba.dto.MovesView;
 import com.twlghtzn.amoba.exceptionhandling.RequestIncorrectException;
-import com.twlghtzn.amoba.model.ActualBoard;
-import com.twlghtzn.amoba.model.Component;
+import com.twlghtzn.amoba.model.FieldChain;
 import com.twlghtzn.amoba.model.Game;
 import com.twlghtzn.amoba.model.Move;
+import com.twlghtzn.amoba.repository.FieldChainRepository;
+import com.twlghtzn.amoba.repository.GameRepository;
+import com.twlghtzn.amoba.repository.MoveRepository;
+import com.twlghtzn.amoba.util.Color;
 import com.twlghtzn.amoba.util.Dir;
-import com.twlghtzn.amoba.util.Info;
-import com.twlghtzn.amoba.util.State;
-import java.util.ArrayList;
+import com.twlghtzn.amoba.util.GameState;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 @Service
 public class AmobaService {
 
-  private final Map<String, Game> boards;
-  private final int boardSize;
+  private final MoveRepository moveRepository;
+  private final FieldChainRepository fieldChainRepository;
+  private final GameRepository gameRepository;
 
   @Autowired
-  public AmobaService() {
-    boards = new HashMap<>();
-    boardSize = 20;
+  public AmobaService(MoveRepository moveRepository, FieldChainRepository fieldChainRepository,
+                      GameRepository gameRepository) {
+    this.moveRepository = moveRepository;
+    this.fieldChainRepository = fieldChainRepository;
+    this.gameRepository = gameRepository;
   }
-
-// region    -------------- setup & moves ----------------
 
   public String generateGameId() {
     return UUID.randomUUID().toString();
   }
 
   public GameStartResponse startNewGame() {
+
+    List<String> gameIds = gameRepository.getALLGameIds();
+
     String id;
     do {
       id = generateGameId();
-    } while (boards.containsKey(id));
-
-    Game game = new Game();
-
-    boards.put(id, game);
-
+    } while (gameIds.contains(id));
+    gameRepository.save(new Game(id));
     return new GameStartResponse(id);
-  }
-
-  public ActualBoard generateActualBoard(String id) {
-
-    List<Move> moves = boards.get(id).getMoves();
-    ActualBoard actualBoard = new ActualBoard(boardSize);
-    Map<String, Info> fields = actualBoard.getFields();
-
-    for (Move move : moves) {
-      fields.put(move.getValX() + "." + move.getValY(), move.getInfo());
-    }
-    actualBoard.setFields(fields);
-    return actualBoard;
-  }
-
-  public MovesDTO generateMovesDTO(String id) {
-    ActualBoard actualBoard = generateActualBoard(id);
-    MovesDTO movesDTO = new MovesDTO();
-    Map<String, Info> actualMoves = new HashMap<>();
-    for (Map.Entry<String, Info> field : actualBoard.getFields().entrySet()) {
-      if (!field.getValue().equals(Info.EMPTY)) {
-        actualMoves.put(field.getKey(), field.getValue());
-      }
-    }
-    movesDTO.setMoves(actualMoves);
-    return movesDTO;
   }
 
   public MoveResponse saveMove(MoveRequest moveRequest) {
@@ -82,143 +59,90 @@ public class AmobaService {
     String id = moveRequest.getId();
     int valX = moveRequest.getValX();
     int valY = moveRequest.getValY();
-    Info info = getPlayerFromString(moveRequest.getPlayer());
+    Color color = Color.valueOf(moveRequest.getColor());
 
-    if (isMoveAllowed(id, valX, valY, info)) {
-      Move move = new Move(valX, valY, info);
-      Game game = boards.get(id);
+    Game game = gameRepository.findGameById(id);
+    checkGameState(game.getGameState(), color);
 
-      addNewConnections(valX, valY, info, id);
+    Move move = new Move(valX, valY, color, game);
+    game.addMove(move);
 
-      List<Move> moves = game.getMoves();
-      moves.add(move);
-      game.setMoves(moves);
+    moveRepository.save(move);
 
-      boards.put(id, game);
+    addNewConnections(move.getField(), id);
+    mergeFieldChains(move, id);
+    GameState gameState = checkIfTheresAWinner(game);
+    game.setGameState(gameState);
+    gameRepository.save(game);
 
-      State state = checkIfTheresAWinner(game);
-
-      if (state.equals(State.BLUE_WON)) {
-        return new MoveResponse("-", "Move saved, Blue won");
-      } else if (state.equals(State.RED_WON)) {
-        return new MoveResponse("-", "Move saved, Red won");
-      }
-
-      String nextUp = nextUp(info);
-      return new MoveResponse(nextUp, "Move saved");
-    }
-    return new MoveResponse("", "Something went wrong");
+    return new MoveResponse(gameState.toString());
   }
 
-  public String nextUp(Enum<Info> info) {
-    if (info.equals(Info.BLUE)) {
-      return "Red";
-    } else {
-      return "Blue";
-    }
-  }
+  public void addNewConnections(String field, String id) {
 
-  public Info getPlayerFromString(String player) {
-    if (player.equals("BLUE")) {
-      return Info.BLUE;
-    } else if (player.equals("RED")) {
-      return Info.RED;
-    } else {
-      throw new IllegalArgumentException("Invalid player info");
-    }
-  }
-// endregion
+    Move move = moveRepository.findMoveByGameIdAndField(id, field);
 
-//region    -------------- checks ----------------
+    int valX = move.getValXFromName();
+    int valY = move.getValYFromName();
+    Color color = move.getColor();
+    Game game = move.getGame();
 
-  public void checkRequest(MoveRequest moveRequest) {
-    if (moveRequest.getId() == null) {
-      throw new RequestIncorrectException("Id missing");
-    }
-    if (moveRequest.getValX() == null || moveRequest.getValY() == null) {
-      throw new RequestIncorrectException("Move coordinates missing");
-    }
-    if (!areMoveCoordinatesInsideBoard(moveRequest.getValX(), moveRequest.getValY())) {
-      throw new RequestIncorrectException("Move coordinates outside board");
-    }
-    if (moveRequest.getPlayer() == null) {
-      throw new RequestIncorrectException("Player info missing");
-    }
-  }
-
-  public boolean areMoveCoordinatesInsideBoard(int valX, int valY) {
-    return valX <= boardSize - 1 &&
-        valX >= 0 &&
-        valY <= boardSize - 1 &&
-        valY >= 0;
-  }
-
-  public boolean isMoveAllowed(String id, int valX, int valY, Info info) {
-    ActualBoard actualBoard = generateActualBoard(id);
-    Map<String, Info> fields = actualBoard.getFields();
-    if (!isPlayerAllowed(id, info)) {
-      throw new RequestIncorrectException("It's not your turn");
-    }
-    if (!fields.get(valX + "." + valY).equals(Info.EMPTY)) {
-      throw new RequestIncorrectException("This field is occupied");
-    }
-    return true;
-  }
-
-  public boolean isPlayerAllowed(String id, Info info) {
-    List<Move> moves = boards.get(id).getMoves();
-    if (moves.size() != 0) {
-      Move lastMove = moves.get(moves.size() - 1);
-      return lastMove.getInfo() != info;
-    }
-    return true;
-  }
-  // endregion
-
-  public void addNewConnections(int valX, int valY, Info color, String id) {
-    Game game = boards.get(id);
     Map<String, Dir> neighbors = generateNeighbouringFieldsNames(valX, valY);
     List<Move> moves = game.getMoves();
-    List<Component> components = game.getComponents();
 
-    for (Map.Entry<String, Dir> neighbor : neighbors.entrySet()) {
-      for (Move move : moves) {
-        if (neighbor.getKey().equals(move.getValX() + "." + move.getValY())) {
-          if (move.getInfo().equals(color)) {
-            if (components.size() != 0) {
-              for (int i = 0; i < components.size(); i++) {
-                if (components.get(i).getFields().contains(neighbor.getKey())) {
-                  Component component = components.get(i);
-                  List<String> componentFields = component.getFields();
-                  componentFields.add(valX + "." + valY);
-                  component.setFields(componentFields);
-                } else {
-                  Component newComponent =
-                      createNewComponent(color, neighbor.getKey(), valX, valY, neighbor.getValue());
-                  components.add(newComponent);
-                }
-              }
-            } else {
-              Component newComponent =
-                  createNewComponent(color, neighbor.getKey(), valX, valY, neighbor.getValue());
-              components.add(newComponent);
-            }
+    Map<String, Dir> sameColorNeighbors = neighbors.entrySet().stream()
+        .filter(neighbor -> moves.stream()
+            .anyMatch(move1 -> neighbor.getKey().equals(move1.getField())))
+        .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+
+    List<FieldChain> fieldChains = game.getFieldChains();
+
+    List<FieldChain> sameColorFieldChains = fieldChains.stream()
+        .filter(fieldChain -> fieldChain.getColor().equals(color))
+        .collect(Collectors.toList());
+
+    if (sameColorFieldChains.size() != 0) {
+
+      int counter = 0;
+
+      for (Map.Entry<String, Dir> sameColorNeighbor : sameColorNeighbors.entrySet()) {
+
+        Dir direction = sameColorNeighbor.getValue();
+
+        List<FieldChain> sameColorSameDirectionFieldChains = sameColorFieldChains.stream()
+            .filter(fieldChain -> fieldChain.getDirection().equals(direction) ||
+                fieldChain.getDirection().equals(Dir.NONE))
+            .collect(Collectors.toList());
+
+        for (FieldChain fieldChain : sameColorSameDirectionFieldChains) {
+          if (fieldChain.getMoves().containsKey(sameColorNeighbor.getKey())) {
+            fieldChain.addMove(move);
+            fieldChainRepository.save(fieldChain);
+            counter++;
           }
         }
       }
+      if (counter == 0) {
+        saveMoveToNewFieldChain(move.getField(), id);
+      }
+    } else {
+      saveMoveToNewFieldChain(move.getField(), id);
     }
-    game.setComponents(components);
-    boards.put(id, game);
   }
 
-  public Component createNewComponent(Info color, String field, int valX, int valY, Dir direction) {
-    Component newComponent = new Component(color);
-    List<String> fields = new ArrayList<>();
-    fields.add(field);
-    fields.add(valX + "." + valY);
-    newComponent.setFields(fields);
-    newComponent.setDirection(direction);
-    return newComponent;
+  public void saveMoveToNewFieldChain(String field, String id) {
+
+    Move move = moveRepository.findMoveByGameIdAndField(id, field);
+
+    FieldChain fieldChain = new FieldChain(move.getColor(), Dir.NONE, move.getGame());
+    move.getGame().addFieldChain(fieldChain);
+    fieldChain.addMove(move);
+    move.addToFieldChain(fieldChain);
+    fieldChainRepository.save(fieldChain);
+  }
+
+  public void mergeFieldChains(Move move, String id) {
+
   }
 
   public Map<String, Dir> generateNeighbouringFieldsNames(int valX, int valY) {
@@ -239,18 +163,82 @@ public class AmobaService {
     return neighbors;
   }
 
-  public State checkIfTheresAWinner(Game game) {
-    List<Component> components = game.getComponents();
-    for (Component component : components) {
-      if (component.getFields().size() > 4) {
-        Info color = component.getColor();
-        if (color.equals(Info.BLUE)) {
-          return State.BLUE_WON;
-        } else if (color.equals(Info.RED)) {
-          return State.RED_WON;
-        }
+  public void checkGameState(GameState gameState, Color color) {
+    checkMoveOrder(gameState, color);
+    checkGameState(gameState);
+  }
+
+  public void checkMoveOrder(GameState gameState, Color color) {
+    if ((gameState.equals(GameState.BLUE_NEXT) && color.equals(Color.RED)) ||
+        (gameState.equals(GameState.RED_NEXT) && color.equals(Color.BLUE))) {
+      throw new RequestIncorrectException("It's not your turn");
+    }
+  }
+
+  public GameState checkIfTheresAWinner(Game game) {
+
+    List<FieldChain> fieldChains = fieldChainRepository.findAllByGameId(game.getId());
+
+    Optional<FieldChain> optionalFieldChain = fieldChains.stream()
+        .filter(fieldChain1 -> fieldChain1.getMoves().size() > 4)
+        .findFirst();
+
+    if (optionalFieldChain.isPresent()) {
+      FieldChain fieldChain = optionalFieldChain.get();
+      Color winnersColor = fieldChain.getColor();
+      if (winnersColor.equals(Color.BLUE)) {
+        return GameState.BLUE_WON;
+      } else if (winnersColor.equals(Color.RED)) {
+        return GameState.RED_WON;
       }
     }
-    return State.ONGOING;
+    return swapPlayer(game);
+  }
+
+  public GameState swapPlayer(Game game) {
+    GameState gameState = game.getGameState();
+    if (gameState.equals(GameState.RED_NEXT)) {
+      return GameState.BLUE_NEXT;
+    } else {
+      return GameState.RED_NEXT;
+    }
+  }
+
+  public void checkGameState(GameState gameState) {
+    if (gameState.equals(GameState.RED_WON) || gameState.equals(GameState.BLUE_WON)) {
+      throw new RequestIncorrectException("This game has finished");
+    }
+  }
+
+  public MovesView generateMovesView(String id) {
+
+    List<Move> moves = moveRepository.findAllByGameId(id);
+    Map<String, Color> mappedMovesData = new HashMap<>();
+
+    for (Move move : moves) {
+      mappedMovesData.put(move.getField(), move.getColor());
+    }
+    return new MovesView(mappedMovesData);
+  }
+
+  public void checkRequest(MoveRequest moveRequest) {
+
+    if (moveRequest.getId() == null) {
+      throw new RequestIncorrectException("Id missing");
+    } else {
+      Optional<Game> optionalGame = gameRepository.findById(moveRequest.getId());
+      if (!optionalGame.isPresent()) {
+        throw new RequestIncorrectException("Invalid id");
+      }
+    }
+    if (moveRequest.getValX() == null || moveRequest.getValY() == null) {
+      throw new RequestIncorrectException("Move coordinates missing");
+    }
+    if (moveRequest.getColor() == null) {
+      throw new RequestIncorrectException("Color missing");
+    } else if (!moveRequest.getColor().equals(Color.RED.name()) &&
+        !moveRequest.getColor().equals(Color.BLUE.name())) {
+      throw new RequestIncorrectException("Invalid color");
+    }
   }
 }

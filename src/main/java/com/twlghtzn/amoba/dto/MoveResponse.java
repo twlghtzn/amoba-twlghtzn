@@ -9,11 +9,9 @@ import lombok.Setter;
 @Setter
 public class MoveResponse {
 
-  private String nextUp;
   private String status;
 
-  public MoveResponse(String nextUp, String status) {
-    this.nextUp = nextUp;
+  public MoveResponse(String status) {
     this.status = status;
   }
 }

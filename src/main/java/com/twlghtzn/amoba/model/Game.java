@@ -4,11 +4,14 @@ import com.twlghtzn.amoba.util.GameState;
 import java.util.ArrayList;
 import java.util.List;
 import javax.persistence.Entity;
+import javax.persistence.FetchType;
 import javax.persistence.Id;
 import javax.persistence.OneToMany;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.LazyCollection;
+import org.hibernate.annotations.LazyCollectionOption;
 
 @Entity
 @NoArgsConstructor
@@ -19,8 +22,10 @@ public class Game {
   @Id
   private String id;
   private GameState gameState;
+  @LazyCollection(LazyCollectionOption.FALSE)
   @OneToMany
   private List<FieldChain> fieldChains;
+  @LazyCollection(LazyCollectionOption.FALSE)
   @OneToMany
   private List<Move> moves;
 

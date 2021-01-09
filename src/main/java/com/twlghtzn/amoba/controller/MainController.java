@@ -1,4 +1,4 @@
-package com.twlghtzn.amoba;
+package com.twlghtzn.amoba.controller;
 
 import com.twlghtzn.amoba.dto.GameStartResponse;
 import com.twlghtzn.amoba.dto.MoveRequest;

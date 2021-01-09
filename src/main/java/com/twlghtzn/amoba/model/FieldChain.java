@@ -12,6 +12,8 @@ import javax.persistence.ManyToMany;
 import javax.persistence.OneToOne;
 import lombok.Getter;
 import lombok.Setter;
+import org.hibernate.annotations.LazyCollection;
+import org.hibernate.annotations.LazyCollectionOption;
 
 @Entity
 @Getter
@@ -23,6 +25,7 @@ public class FieldChain {
   private long id;
   private Dir direction;
   private Color color;
+  @LazyCollection(LazyCollectionOption.FALSE)
   @ManyToMany
   private Map<String, Move> moves;
   @OneToOne

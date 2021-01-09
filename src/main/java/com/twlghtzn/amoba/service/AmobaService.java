@@ -71,7 +71,7 @@ public class AmobaService {
     moveRepository.save(move);
 
     addNewConnections(move.getField(), id);
-    mergeFieldChainsContainingMove(id, move);
+    mergeFieldChains(id);
     GameState gameState = checkIfTheresAWinner(game);
     game.setGameState(gameState);
     gameRepository.save(game);
@@ -110,18 +110,20 @@ public class AmobaService {
     for (Map.Entry<Move, Dir> sameColorNeighboringMove : sameColorNeighboringMoves.entrySet()) {
       saveTwoMovesToFieldChain(move, sameColorNeighboringMove.getKey(),
           sameColorNeighboringMove.getValue(), id);
+      mergeFieldChains(id);
     }
   }
 
-  public void mergeFieldChainsContainingMove(String id, Move move1) {
+  public void mergeFieldChains(String id) {
 
     Game game = gameRepository.findGameById(id);
 
     List<FieldChain> fieldChains = game.getFieldChains();
 
-    List<Long> fieldChainToDeleteIds = new ArrayList<>();
-
     if (fieldChains.size() > 1) {
+
+      List<Long> fieldChainToDeleteIds = new ArrayList<>();
+
       List<Move> moves = game.getMoves();
 
       for (Dir dir : Dir.values()) {
@@ -132,54 +134,40 @@ public class AmobaService {
 
         if (sameDirectionFieldChains.size() > 1) {
 
-          int fieldChainsToMergeCount = 0;
+          List<FieldChain> fieldChainsToConnect;
 
           for (Move move : moves) {
-            for (FieldChain fieldChain : sameDirectionFieldChains) {
-              if (fieldChain.getMoves().containsKey(move.getField())) {
-                fieldChainsToMergeCount++;
+
+            fieldChainsToConnect = sameDirectionFieldChains.stream()
+                .filter(fieldChain -> fieldChain.getMoves().containsKey(move.getField()))
+                .collect(Collectors.toList());
+
+            if (fieldChainsToConnect.size() > 1) {
+
+              for (Map.Entry<String, Move> moveToCopy : fieldChainsToConnect.get(1).getMoves()
+                  .entrySet()) {
+                fieldChainsToConnect.get(0).addMove(moveToCopy.getValue());
+
+                moveToCopy.getValue().removeFieldChain(fieldChainsToConnect.get(1));
               }
+              fieldChainsToConnect.get(1).setMoves(null);
+              fieldChainsToConnect.get(1).setGame(null);
+              fieldChains.remove(fieldChainsToConnect.get(1));
+              fieldChainToDeleteIds.add(fieldChainsToConnect.get(1).getId());
+              sameDirectionFieldChains.remove(fieldChainsToConnect.get(1));
+              break;
+            } else {
+              fieldChainsToConnect.clear();
             }
-          }
-
-          for (int i = 0; i < fieldChainsToMergeCount / 3; i++) {
-
-            List<FieldChain> fieldChainsToConnect = new ArrayList<>();
-
-            for (Move move : moves) {
-              for (FieldChain fieldChain : sameDirectionFieldChains) {
-                if (fieldChain.getMoves().containsKey(move.getField())) {
-                  fieldChainsToConnect.add(fieldChain);
-                }
-              }
-              if (fieldChainsToConnect.size() > 1) {
-
-                for (Map.Entry<String, Move> moveToCopy : fieldChainsToConnect.get(1).getMoves()
-                    .entrySet()) {
-                  fieldChainsToConnect.get(0).addMove(moveToCopy.getValue());
-
-                  moveToCopy.getValue().removeFieldChain(fieldChainsToConnect.get(1));
-                }
-                fieldChainsToConnect.get(1).setMoves(null);
-                fieldChainsToConnect.get(1).setGame(null);
-                fieldChains.remove(fieldChainsToConnect.get(1));
-                fieldChainToDeleteIds.add(fieldChainsToConnect.get(1).getId());
-                sameDirectionFieldChains.remove(fieldChainsToConnect.get(1));
-                break;
-              } else {
-                fieldChainsToConnect.clear();
-              }
-            }
-            fieldChainsToConnect.clear();
           }
         }
       }
-    }
-    game.setFieldChains(fieldChains);
-    gameRepository.save(game);
-    if (fieldChainToDeleteIds.size() != 0) {
-      for (long idToDelete : fieldChainToDeleteIds) {
-        fieldChainRepository.deleteById(idToDelete);
+      game.setFieldChains(fieldChains);
+      gameRepository.save(game);
+      if (fieldChainToDeleteIds.size() != 0) {
+        for (long idToDelete : fieldChainToDeleteIds) {
+          fieldChainRepository.deleteById(idToDelete);
+        }
       }
     }
   }

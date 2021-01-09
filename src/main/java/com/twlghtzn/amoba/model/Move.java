@@ -43,10 +43,6 @@ public class Move {
     fieldChains = new ArrayList<>();
   }
 
-  public void addToFieldChain(FieldChain fieldChain) {
-    fieldChains.add(fieldChain);
-  }
-
   public String getNameFromPosition(int valX, int valY) {
     return valX + "." + valY;
   }

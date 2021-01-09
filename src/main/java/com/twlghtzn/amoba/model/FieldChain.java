@@ -11,11 +11,9 @@ import javax.persistence.Id;
 import javax.persistence.ManyToMany;
 import javax.persistence.OneToOne;
 import lombok.Getter;
-import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 @Entity
-@NoArgsConstructor
 @Getter
 @Setter
 public class FieldChain {
@@ -29,6 +27,10 @@ public class FieldChain {
   private Map<String, Move> moves;
   @OneToOne
   private Game game;
+
+  public FieldChain() {
+    moves = new HashMap<>();
+  }
 
   public FieldChain(Color color, Dir direction, Game game) {
     this.direction = direction;

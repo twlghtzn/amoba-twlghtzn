@@ -4,7 +4,6 @@ import com.twlghtzn.amoba.dto.GameStartResponse;
 import com.twlghtzn.amoba.dto.MoveRequest;
 import com.twlghtzn.amoba.dto.MoveResponse;
 import com.twlghtzn.amoba.service.AmobaService;
-import org.omg.CosNaming.NamingContextPackage.NotFound;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -32,7 +31,7 @@ public class MainController {
   }
 
   @PutMapping("/move")
-  public ResponseEntity<?> move(@RequestBody MoveRequest moveRequest) throws NotFound {
+  public ResponseEntity<?> move(@RequestBody MoveRequest moveRequest) {
     MoveResponse moveResponse = amobaService.saveMove(moveRequest);
     return ResponseEntity.status(HttpStatus.OK).body(moveResponse);
   }

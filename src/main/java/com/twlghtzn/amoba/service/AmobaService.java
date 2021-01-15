@@ -200,7 +200,46 @@ public class AmobaService {
     }
   }
 
-  public Map<String, Dir> generateNeighbouringFieldsNames(int valX, int valY) {
+  public List<Map<Dir, Move>> getNeighboringSameColorMoves(Move newMove, String id) {
+
+    int newMoveValX = newMove.getValXFromName();
+    int newMoveValY = newMove.getValYFromName();
+    List<Move> sameColorMoves = moveRepository.getMovesByIdAndByColor(id, newMove.getColor());
+
+    List<Map<Dir, Move>> neighboringSameColorMoves = new ArrayList<>();
+
+    for (Move move : sameColorMoves) {
+
+      int moveValX = move.getValXFromName();
+      int moveValY = move.getValYFromName();
+
+      if (moveValX == newMoveValX &&
+          (moveValY == newMoveValY + 1 || moveValY == newMoveValY - 1)) {
+
+        neighboringSameColorMoves.add(addMoveToMap(Dir.VERT, move));
+
+      } else if (moveValY == newMoveValY &&
+          (moveValX == newMoveValX + 1 || moveValX == newMoveValX - 1)) {
+
+        neighboringSameColorMoves.add(addMoveToMap(Dir.HORIZ, move));
+
+      } else if ((moveValX == newMoveValX + 1 && moveValY == newMoveValY + 1) ||
+          (moveValX == newMoveValX - 1 && moveValY == newMoveValY - 1)) {
+
+        neighboringSameColorMoves.add(addMoveToMap(Dir.DIAG_DOWN, move));
+
+      } else if ((moveValX == newMoveValX + 1 && moveValY == newMoveValY - 1) ||
+          (moveValX == newMoveValX - 1 && moveValY == newMoveValY + 1)) {
+
+        neighboringSameColorMoves.add(addMoveToMap(Dir.DIAG_UP, move));
+
+      }
+    }
+
+    return neighboringSameColorMoves;
+  }
+
+/*  public Map<String, Dir> generateNeighbouringFieldsNames(int valX, int valY) {
     Map<String, Dir> neighbors = new HashMap<>();
     int leftColumnX = valX - 1;
     int rightColumnX = valX + 1;
@@ -216,7 +255,7 @@ public class AmobaService {
     neighbors.put(valX + "." + bottomRowY, Dir.VERT);
     neighbors.put(rightColumnX + "." + bottomRowY, Dir.DIAG_DOWN);
     return neighbors;
-  }
+  } */
 
   public void checkGameState(GameState gameState, Color color) {
     checkMoveOrder(gameState, color);

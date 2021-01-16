@@ -15,5 +15,8 @@ public interface MoveRepository extends CrudRepository<Move, String> {
   @Query(value = "SELECT * FROM move m WHERE game_id = :id AND field = :field", nativeQuery = true)
   Move findMoveByGameIdAndField(String id, String field);
 
+  @Query(value = "SELECT * FROM move m WHERE game_id = :id AND color = :color", nativeQuery = true)
+  List<Move> getMovesByIdAndByColor(String id, String color);
+
   Optional<Move> findMoveByGameAndField(Game game, String field);
 }

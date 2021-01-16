@@ -4,9 +4,13 @@ import com.twlghtzn.amoba.util.Color;
 import java.util.ArrayList;
 import java.util.List;
 import javax.persistence.Entity;
+import javax.persistence.EnumType;
+import javax.persistence.Enumerated;
+import javax.persistence.FetchType;
 import javax.persistence.GeneratedValue;
 import javax.persistence.GenerationType;
 import javax.persistence.Id;
+import javax.persistence.ManyToMany;
 import javax.persistence.ManyToOne;
 import javax.persistence.OneToMany;
 import lombok.Getter;
@@ -23,8 +27,9 @@ public class Move {
   @GeneratedValue(strategy = GenerationType.IDENTITY)
   private long id;
   private String field;
+  @Enumerated(EnumType.STRING)
   private Color color;
-  @OneToMany
+  @ManyToMany // (mappedBy = "moves")
   private List<FieldChain> fieldChains;
   @ManyToOne
   private Game game;
@@ -41,6 +46,10 @@ public class Move {
     this.color = color;
     this.game = game;
     fieldChains = new ArrayList<>();
+  }
+
+  public void addFieldChain(FieldChain fieldChain) {
+    fieldChains.add(fieldChain);
   }
 
   public String getNameFromPosition(int valX, int valY) {

@@ -12,7 +12,6 @@ import com.twlghtzn.amoba.repository.MoveRepository;
 import com.twlghtzn.amoba.util.Color;
 import com.twlghtzn.amoba.util.Dir;
 import com.twlghtzn.amoba.util.GameState;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -39,7 +38,7 @@ public class AmobaService {
 
   public GameStartResponse startNewGame() {
 
-    List<String> gameIds = gameRepository.getALLGameIds();
+    List<String> gameIds = gameRepository.getAllGameIds();
 
     String id;
     do {
@@ -49,15 +48,14 @@ public class AmobaService {
     return new GameStartResponse(id);
   }
 
-  public MoveResponse saveMove(MoveRequest moveRequest) {
-    checkRequest(moveRequest);
-    String id = moveRequest.getId();
+  public MoveResponse saveMove(MoveRequest moveRequest, String id) {
+    checkRequest(moveRequest, id);
     int valX = moveRequest.getValX();
     int valY = moveRequest.getValY();
-    Color color = Color.valueOf(moveRequest.getColor());
 
     Game game = gameRepository.findGameById(id);
-    checkGameState(game.getGameState(), color);
+    GameState gameState = game.getGameState();
+    Color color = getMoveColor(gameState);
 
     String field = getNameFromPosition(valX, valY);
     Move move = new Move(field, color, game);
@@ -65,21 +63,29 @@ public class AmobaService {
     game.addMove(move);
     gameRepository.save(game);
 
-    addMoveToParentLists(move.getField(), id);
-    int movesCount = game.getMoves().size();
-    if (movesCount > 2) {
-      registerParents(move, id);
+    addMoveToConnectionsLists(field, id);
+    if (game.getMoves().size() > 2) {
+      registerConnectionsWithNeighboringMoves(move, id);
       rewireParents(id);
     }
-    GameState gameState = checkIfTheresAWinner(id);
+    gameState = checkIfTheresAWinner(id, color);
     game.setGameState(gameState);
     gameRepository.save(game);
-
     return new MoveResponse(gameState.toString());
   }
 
-  // move is registered with itself as parent (e.g. key: "1.1", value: "1.1")
-  public void addMoveToParentLists(String field, String id) {
+  public Color getMoveColor(GameState gameState) {
+    if (gameState.equals(GameState.RED_NEXT)) {
+      return Color.RED;
+    } else if (gameState.equals(GameState.BLUE_NEXT)) {
+      return Color.BLUE;
+    } else {
+      throw new RequestIncorrectException("This game has finished");
+    }
+  }
+
+  // move is registered with itself as parent (e.g. key(field): "1.1", value(parent): "1.1") in all directions
+  public void addMoveToConnectionsLists(String field, String id) {
     Game game = gameRepository.findGameById(id);
     for (Dir dir : Dir.values()) {
       game.addConnection(dir, field, field);
@@ -87,7 +93,7 @@ public class AmobaService {
     gameRepository.save(game);
   }
 
-  public void registerParents(Move newMove, String id) {
+  public void registerConnectionsWithNeighboringMoves(Move newMove, String id) {
     Game game = gameRepository.findGameById(id);
     Map<String, Dir> neighboringSameColorMoves = getNeighboringSameColorFields(newMove, id);
 
@@ -100,7 +106,7 @@ public class AmobaService {
         int moveEntryValY = getValYFromField(moveEntry.getKey());
         Dir dir = moveEntry.getValue();
 
-        // coordinates decide, which move will be the parent
+        // between two neighboring moves coordinates decide, which move will be the parent
         if (dir.equals(Dir.VERT)) {
           // move with smaller Y is parent
           if (moveEntryValY < newMoveValY) {
@@ -121,25 +127,21 @@ public class AmobaService {
     gameRepository.save(game);
   }
 
+  // in a chain, the move with the smallest X or Y coordinate is the parent of ALL moves in the chain
+  // if a move has another move as parent, but that move again has an other move as parent,
+  // than the first move's parent has to be changed to the second move's parent
   public void rewireParents(String id) {
     Game game = gameRepository.findGameById(id);
-    List<Map<String, String>> parentsRegister = game.getParents();
+    List<Map<String, String>> parentsRegister = game.getConnections();
 
     for (Map<String, String> connections : parentsRegister) {
 
       for (Map.Entry<String, String> connection : connections.entrySet()) {
-
         String field = connection.getKey();
+        String parent = connection.getValue();
 
-        for (Map.Entry<String, String> connectionToCorrect : connections.entrySet()) {
-          // in a chain, the move with the smallest X or Y coordinate is the parent of ALL moves in the chain
-          // if a move has another move as parent, but that move has again a parent,
-          // than the first move's parent has to be changed to the second move's parent
-          if (!connectionToCorrect.getKey().equals(field) &&
-              connectionToCorrect.getValue().equals(field)) {
-
-            connectionToCorrect.setValue(connection.getValue());
-          }
+        if (!parent.equals(field)) {
+          connection.setValue(connections.get(parent));
         }
       }
     }
@@ -174,50 +176,28 @@ public class AmobaService {
     return neighboringSameColorMoves;
   }
 
-  public void checkGameState(GameState gameState, Color color) {
-    checkMoveOrder(gameState, color);
-    checkGameState(gameState);
-  }
-
-  public void checkMoveOrder(GameState gameState, Color color) {
-    if ((gameState.equals(GameState.BLUE_NEXT) && color.equals(Color.RED)) ||
-        (gameState.equals(GameState.RED_NEXT) && color.equals(Color.BLUE))) {
-      throw new RequestIncorrectException("It's not your turn");
-    }
-  }
-
-  public GameState checkIfTheresAWinner(String id) {
+  public GameState checkIfTheresAWinner(String id, Color color) {
     Game game = gameRepository.findGameById(id);
-    List<Map<String, String>> parentsRegister = game.getParents();
-    int counter = 0;
-    String parentField = "none";
+    List<Map<String, String>> parentsRegister = game.getConnections();
+
+    List<Move> sameColorMoves = moveRepository.getMovesByIdAndByColor(id, color.name());
 
     for (Map<String, String> connections : parentsRegister) {
 
-      for (Map.Entry<String, String> checkerConnection : connections.entrySet()) {
+      for (Move move : sameColorMoves) {
         // count how many times a field is registered as parent in a specific direction
-        String field = checkerConnection.getKey();
+        String field = move.getField();
+        long count = connections.entrySet().stream()
+            .filter(c -> c.getValue().equals(field))
+            .count();
 
-        for (Map.Entry<String, String> checkedConnection : connections.entrySet()) {
-
-          if (checkedConnection.getValue().equals(field)) {
-            counter++;
-            parentField = field;
+        if (count >= 5) {
+          if (color.equals(Color.BLUE)) {
+            return GameState.BLUE_WON;
+          } else {
+            return GameState.RED_WON;
           }
         }
-        if (counter < 5) {
-          counter = 0;
-          parentField = "none";
-        }
-      }
-    }
-    if (!parentField.equals("none")) {
-      Move move = moveRepository.findMoveByGameIdAndField(game.getId(), parentField);
-      Color winnersColor = move.getColor();
-      if (winnersColor.equals(Color.BLUE)) {
-        return GameState.BLUE_WON;
-      } else if (winnersColor.equals(Color.RED)) {
-        return GameState.RED_WON;
       }
     }
     return swapPlayer(game);
@@ -229,12 +209,6 @@ public class AmobaService {
       return GameState.BLUE_NEXT;
     } else {
       return GameState.RED_NEXT;
-    }
-  }
-
-  public void checkGameState(GameState gameState) {
-    if (gameState.equals(GameState.RED_WON) || gameState.equals(GameState.BLUE_WON)) {
-      throw new RequestIncorrectException("This game has finished");
     }
   }
 
@@ -250,23 +224,17 @@ public class AmobaService {
     return new MovesView(mappedMovesData, status);
   }
 
-  public void checkRequest(MoveRequest moveRequest) {
-    if (moveRequest.getId() == null) {
-      throw new RequestIncorrectException("Id missing");
-    } else {
-      Optional<Game> optionalGame = gameRepository.findById(moveRequest.getId());
-      if (!optionalGame.isPresent()) {
-        throw new RequestIncorrectException("Invalid id");
-      }
+  public void checkRequest(MoveRequest moveRequest, String id) {
+    Optional<Game> optionalGame = gameRepository.findById(id);
+    if (!optionalGame.isPresent()) {
+      throw new RequestIncorrectException("Invalid id");
+    }
+    String field = getNameFromPosition(moveRequest.getValX(), moveRequest.getValY());
+    if (optionalGame.get().isFieldOccupied(field)) {
+      throw new RequestIncorrectException("There's already a move on this field");
     }
     if (moveRequest.getValX() == null || moveRequest.getValY() == null) {
       throw new RequestIncorrectException("Move coordinates missing");
-    }
-    if (moveRequest.getColor() == null) {
-      throw new RequestIncorrectException("Color missing");
-    } else if (!moveRequest.getColor().equals(Color.RED.name()) &&
-        !moveRequest.getColor().equals(Color.BLUE.name())) {
-      throw new RequestIncorrectException("Invalid color");
     }
   }
 

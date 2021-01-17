@@ -1,12 +1,12 @@
 package com.twlghtzn.amoba;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 
 import com.twlghtzn.amoba.dto.MoveRequest;
+import com.twlghtzn.amoba.exceptionhandling.RequestIncorrectException;
 import com.twlghtzn.amoba.model.Game;
 import com.twlghtzn.amoba.model.Move;
 import com.twlghtzn.amoba.repository.GameRepository;
@@ -15,7 +15,6 @@ import com.twlghtzn.amoba.service.AmobaService;
 import com.twlghtzn.amoba.util.Color;
 import com.twlghtzn.amoba.util.Dir;
 import com.twlghtzn.amoba.util.GameState;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
@@ -34,34 +33,27 @@ public class AmobaServiceTest {
   private final String id = "f6591202-09e6-43a7-b6a3-2792dfe5f31d";
   private Game game;
 
-
   @Autowired
   private AmobaService amobaService;
-
   @Autowired
   private MoveRepository moveRepository;
-
   @Autowired
   private GameRepository gameRepository;
 
   @BeforeEach
   public void setup() {
-
     game = new Game(id);
     gameRepository.save(game);
-
   }
 
   @Test
   public void whenSaveMove_moveInDB() {
-
-    MoveRequest moveRequest = new MoveRequest(3, 3, id, "BLUE");
-
-    amobaService.saveMove(moveRequest);
+    MoveRequest moveRequest = new MoveRequest(3, 3);
+    amobaService.saveMove(moveRequest, id);
 
     Move expectedMove = moveRepository.findMoveByGameIdAndField(id, "3.3");
     Game game = gameRepository.findGameById(id);
-    List<Map<String, String>> parents = game.getParents();
+    List<Map<String, String>> parents = game.getConnections();
 
     assertEquals("3.3", expectedMove.getField());
     assertEquals(id, expectedMove.getGame().getId());
@@ -73,20 +65,32 @@ public class AmobaServiceTest {
   }
 
   @Test
+  public void whenMoveToAnOccupiedField_throwException() {
+    saveMove("1.1", Color.BLUE);
+
+    MoveRequest moveRequest = new MoveRequest(1, 1);
+
+    try {
+      amobaService.saveMove(moveRequest, id);
+    } catch (RequestIncorrectException ex) {
+      String error = "There's already a move on this field";
+      assertEquals(error, ex.getError());
+    }
+  }
+
+  @Test
   public void whenSaveNeighboringMove_registerParent() {
     saveMove("1.1", Color.BLUE);
     saveMove("2.2", Color.BLUE);
     game.addConnection(Dir.DIAG_DOWN, "2.2", "1.1");
     gameRepository.save(game);
 
-    MoveRequest moveRequest = new MoveRequest(3, 3, id, "BLUE");
+    MoveRequest moveRequest = new MoveRequest(3, 3);
+    amobaService.saveMove(moveRequest, id);
 
-    amobaService.saveMove(moveRequest);
-
-    Map<String, String> diagDownParents = gameRepository.findGameById(id).getDiagDownParents();
+    Map<String, String> diagDownParents = gameRepository.findGameById(id).getDiagDownConnections();
 
     assertEquals(3, diagDownParents.size());
-    assertEquals("1.1", diagDownParents.get("2.2"));
     assertEquals("1.1", diagDownParents.get("3.3"));
   }
 
@@ -98,23 +102,19 @@ public class AmobaServiceTest {
     game.setGameState(GameState.RED_NEXT);
     gameRepository.save(game);
 
-    MoveRequest moveRequest = new MoveRequest(3, 3, id, "RED");
-
-    amobaService.saveMove(moveRequest);
+    MoveRequest moveRequest = new MoveRequest(3, 3);
+    amobaService.saveMove(moveRequest, id);
 
     List<Move> moves = gameRepository.findGameById(id).getMoves();
-    Map<String, String> diagDownParents = gameRepository.findGameById(id).getDiagDownParents();
+    Map<String, String> diagDownParents = gameRepository.findGameById(id).getDiagDownConnections();
 
     assertEquals(3, moves.size());
-    assertTrue(diagDownParents.containsKey("2.2"));
-    assertTrue(diagDownParents.containsKey("2.2"));
     assertTrue(diagDownParents.containsKey("3.3"));
     assertNotEquals("1.1", diagDownParents.get("3.3"));
   }
 
   @Test
   public void whenMoveConnectsTwoExistingFieldChains_MergeIntoOne() {
-
     String[] fieldsDiagDown = {"1.1", "2.2", "4.4", "5.5"};
     for (String field : fieldsDiagDown) {
       saveMove(field, Color.BLUE);
@@ -123,18 +123,14 @@ public class AmobaServiceTest {
     game.addConnection(Dir.DIAG_DOWN, "5.5", "4.4");
     gameRepository.save(game);
 
-    MoveRequest moveRequest = new MoveRequest(3, 3, id, "BLUE");
-
-    amobaService.saveMove(moveRequest);
+    MoveRequest moveRequest = new MoveRequest(3, 3);
+    amobaService.saveMove(moveRequest, id);
 
     Game game = gameRepository.findGameById(id);
-    Map<String, String> diagDownParents = game.getDiagDownParents();
+    Map<String, String> diagDownParents = game.getDiagDownConnections();
     GameState status = game.getGameState();
 
     assertEquals(5, diagDownParents.size());
-    for (String field : fieldsDiagDown) {
-      assertTrue(diagDownParents.containsKey(field));
-    }
     assertTrue(diagDownParents.containsKey("3.3"));
     for (Map.Entry<String, String> connections : diagDownParents.entrySet()) {
       assertEquals("1.1", connections.getValue());
@@ -143,7 +139,6 @@ public class AmobaServiceTest {
   }
 
   public Move saveMove(String field, Color color) {
-
     Move move = new Move(field, color, game);
     moveRepository.save(move);
     game.addMove(move);

@@ -11,13 +11,9 @@ public class MoveRequest {
 
   private Integer valX;
   private Integer valY;
-  private String id;
-  private String color;
 
-  public MoveRequest(Integer valX, Integer valY, String id, String color) {
+  public MoveRequest(Integer valX, Integer valY) {
     this.valX = valX;
     this.valY = valY;
-    this.id = id;
-    this.color = color;
   }
 }

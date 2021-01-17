@@ -25,18 +25,19 @@ public class MainController {
   }
 
   @PostMapping("/game")
-  public ResponseEntity<GameStartResponse> game() {
+  public ResponseEntity<GameStartResponse> start() {
     GameStartResponse gameStartResponse = amobaService.startNewGame();
     return ResponseEntity.status(HttpStatus.CREATED).body(gameStartResponse);
   }
 
-  @PutMapping("/move")
-  public ResponseEntity<?> move(@RequestBody MoveRequest moveRequest) {
-    MoveResponse moveResponse = amobaService.saveMove(moveRequest);
+  @PutMapping("/game/{id}")
+  public ResponseEntity<?> move(@PathVariable(name = "id") String id,
+                                @RequestBody MoveRequest moveRequest) {
+    MoveResponse moveResponse = amobaService.saveMove(moveRequest, id);
     return ResponseEntity.status(HttpStatus.OK).body(moveResponse);
   }
 
-  @GetMapping("/game/{id}/moves")
+  @GetMapping("/game/{id}")
   public ResponseEntity<?> moves(@PathVariable(name = "id") String id) {
     return ResponseEntity.status(HttpStatus.OK).body(amobaService.generateMovesView(id));
   }

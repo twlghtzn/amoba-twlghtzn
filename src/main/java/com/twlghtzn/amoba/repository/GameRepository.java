@@ -10,6 +10,5 @@ public interface GameRepository extends CrudRepository<Game, String> {
   Game findGameById(String id);
 
   @Query(value = "SELECT id FROM game g", nativeQuery = true)
-  List<String> getALLGameIds();
-
+  List<String> getAllGameIds();
 }

@@ -37,9 +37,7 @@ public class AmobaService {
   }
 
   public GameStartResponse startNewGame() {
-
     List<String> gameIds = gameRepository.getAllGameIds();
-
     String id;
     do {
       id = generateGameId();
@@ -57,7 +55,7 @@ public class AmobaService {
     GameState gameState = game.getGameState();
     Color color = getMoveColor(gameState);
 
-    String field = getNameFromPosition(valX, valY);
+    String field = getFieldFromPosition(valX, valY);
     Move move = new Move(field, color, game);
     moveRepository.save(move);
     game.addMove(move);
@@ -129,7 +127,7 @@ public class AmobaService {
 
   // in a chain, the move with the smallest X or Y coordinate is the parent of ALL moves in the chain
   // if a move has another move as parent, but that move again has an other move as parent,
-  // than the first move's parent has to be changed to the second move's parent
+  // then the first move's parent has to be changed to the second move's parent
   public void rewireParents(String id) {
     Game game = gameRepository.findGameById(id);
     List<Map<String, String>> parentsRegister = game.getConnections();
@@ -158,19 +156,20 @@ public class AmobaService {
     for (Move move : sameColorMoves) {
       int moveValX = getValXFromField(move.getField());
       int moveValY = getValYFromField(move.getField());
+      String field = move.getField();
 
       if (moveValX == newMoveValX &&
           (moveValY == newMoveValY + 1 || moveValY == newMoveValY - 1)) {
-        neighboringSameColorMoves.put(move.getField(), Dir.VERT);
+        neighboringSameColorMoves.put(field, Dir.VERT);
       } else if (moveValY == newMoveValY &&
           (moveValX == newMoveValX + 1 || moveValX == newMoveValX - 1)) {
-        neighboringSameColorMoves.put(move.getField(), Dir.HORIZ);
+        neighboringSameColorMoves.put(field, Dir.HORIZ);
       } else if ((moveValX == newMoveValX + 1 && moveValY == newMoveValY + 1) ||
           (moveValX == newMoveValX - 1 && moveValY == newMoveValY - 1)) {
-        neighboringSameColorMoves.put(move.getField(), Dir.DIAG_DOWN);
+        neighboringSameColorMoves.put(field, Dir.DIAG_DOWN);
       } else if ((moveValX == newMoveValX + 1 && moveValY == newMoveValY - 1) ||
           (moveValX == newMoveValX - 1 && moveValY == newMoveValY + 1)) {
-        neighboringSameColorMoves.put(move.getField(), Dir.DIAG_UP);
+        neighboringSameColorMoves.put(field, Dir.DIAG_UP);
       }
     }
     return neighboringSameColorMoves;
@@ -178,11 +177,11 @@ public class AmobaService {
 
   public GameState checkIfTheresAWinner(String id, Color color) {
     Game game = gameRepository.findGameById(id);
-    List<Map<String, String>> parentsRegister = game.getConnections();
+    List<Map<String, String>> connectionsRegister = game.getConnections();
 
     List<Move> sameColorMoves = moveRepository.getMovesByIdAndByColor(id, color.name());
 
-    for (Map<String, String> connections : parentsRegister) {
+    for (Map<String, String> connections : connectionsRegister) {
 
       for (Move move : sameColorMoves) {
         // count how many times a field is registered as parent in a specific direction
@@ -229,7 +228,7 @@ public class AmobaService {
     if (!optionalGame.isPresent()) {
       throw new RequestIncorrectException("Invalid id");
     }
-    String field = getNameFromPosition(moveRequest.getValX(), moveRequest.getValY());
+    String field = getFieldFromPosition(moveRequest.getValX(), moveRequest.getValY());
     if (optionalGame.get().isFieldOccupied(field)) {
       throw new RequestIncorrectException("There's already a move on this field");
     }
@@ -238,7 +237,7 @@ public class AmobaService {
     }
   }
 
-  public int[] getPositionsFromName(String field) {
+  public int[] getPositionsFromField(String field) {
     String[] strCoordinates = field.split("\\.");
     int[] coordinates = new int[2];
     coordinates[0] = Integer.parseInt(strCoordinates[0]);
@@ -247,14 +246,14 @@ public class AmobaService {
   }
 
   public int getValXFromField(String field) {
-    return getPositionsFromName(field)[0];
+    return getPositionsFromField(field)[0];
   }
 
   public int getValYFromField(String field) {
-    return getPositionsFromName(field)[1];
+    return getPositionsFromField(field)[1];
   }
 
-  public String getNameFromPosition(int valX, int valY) {
+  public String getFieldFromPosition(int valX, int valY) {
     return valX + "." + valY;
   }
 }

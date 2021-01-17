@@ -1,14 +1,14 @@
 package com.twlghtzn.amoba;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 
 import com.twlghtzn.amoba.dto.MoveRequest;
-import com.twlghtzn.amoba.model.FieldChain;
 import com.twlghtzn.amoba.model.Game;
 import com.twlghtzn.amoba.model.Move;
-import com.twlghtzn.amoba.repository.FieldChainRepository;
 import com.twlghtzn.amoba.repository.GameRepository;
 import com.twlghtzn.amoba.repository.MoveRepository;
 import com.twlghtzn.amoba.service.AmobaService;
@@ -16,8 +16,8 @@ import com.twlghtzn.amoba.util.Color;
 import com.twlghtzn.amoba.util.Dir;
 import com.twlghtzn.amoba.util.GameState;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.runner.RunWith;
@@ -44,9 +44,6 @@ public class AmobaServiceTest {
   @Autowired
   private GameRepository gameRepository;
 
-  @Autowired
-  private FieldChainRepository fieldChainRepository;
-
   @BeforeEach
   public void setup() {
 
@@ -63,166 +60,97 @@ public class AmobaServiceTest {
     amobaService.saveMove(moveRequest);
 
     Move expectedMove = moveRepository.findMoveByGameIdAndField(id, "3.3");
-
-    int movesCount = gameRepository.findGameById(id).getMoves().size();
+    Game game = gameRepository.findGameById(id);
+    List<Map<String, String>> parents = game.getParents();
 
     assertEquals("3.3", expectedMove.getField());
     assertEquals(id, expectedMove.getGame().getId());
     assertEquals(Color.BLUE, expectedMove.getColor());
-    assertEquals(1, movesCount);
+    for (Map<String, String> connections : parents) {
+      assertTrue(connections.containsKey("3.3"));
+    }
+    assertEquals(GameState.RED_NEXT, game.getGameState());
   }
 
   @Test
-  public void whenSaveNeighboringMove_createFieldChain() {
-
+  public void whenSaveNeighboringMove_registerParent() {
+    saveMove("1.1", Color.BLUE);
     saveMove("2.2", Color.BLUE);
+    game.addConnection(Dir.DIAG_DOWN, "2.2", "1.1");
+    gameRepository.save(game);
 
     MoveRequest moveRequest = new MoveRequest(3, 3, id, "BLUE");
 
     amobaService.saveMove(moveRequest);
 
-    List<FieldChain> gamesFieldChains = gameRepository.findGameById(id).getFieldChains();
-    FieldChain expectedFieldChain = gamesFieldChains.get(0);
+    Map<String, String> diagDownParents = gameRepository.findGameById(id).getDiagDownParents();
 
-    int movesCount = gameRepository.findGameById(id).getMoves().size();
-
-    assertEquals(1, gamesFieldChains.size());
-    assertEquals(2, expectedFieldChain.getMoves().size());
-    assertTrue(checkIfFieldChainContainsMove(expectedFieldChain,"2.2"));
-    assertTrue(checkIfFieldChainContainsMove(expectedFieldChain,"3.3"));
-    assertEquals(2, movesCount);
-  }
-
-  @Test
-  public void whenSaveThirdInARow_mergeFieldChains() {
-
-/*    Move move = saveMove("1.1", Color.BLUE);
-    Move move1 = saveMove("2.2", Color.BLUE);
-
-    saveFieldChain(move, move1, Dir.DIAG_DOWN); */
-
-    MoveRequest moveRequest1 = new MoveRequest(1, 1, id, "BLUE");
-    MoveRequest moveRequest2 = new MoveRequest(0, 0, id, "RED");
-    MoveRequest moveRequest3 = new MoveRequest(2, 2, id, "BLUE");
-    MoveRequest moveRequest4 = new MoveRequest(2, 0, id, "RED");
-    MoveRequest moveRequest5 = new MoveRequest(3, 3, id, "BLUE");
-
-    MoveRequest[] moveRequests = {moveRequest1, moveRequest2, moveRequest3, moveRequest4, moveRequest5};
-
-    for (MoveRequest moveRequest : moveRequests) {
-
-      amobaService.saveMove(moveRequest);
-
-    }
-
-    List<FieldChain> gamesFieldChains = gameRepository.findGameById(id).getFieldChains();
-    FieldChain expectedFieldChain = gamesFieldChains.get(0);
-
-    assertEquals(1, gamesFieldChains.size());
-    assertEquals(3, expectedFieldChain.getMoves().size());
-    assertTrue(checkIfFieldChainContainsMove(expectedFieldChain, "1.1"));
-    assertTrue(checkIfFieldChainContainsMove(expectedFieldChain, "2.2"));
-    assertTrue(checkIfFieldChainContainsMove(expectedFieldChain, "3.3"));
+    assertEquals(3, diagDownParents.size());
+    assertEquals("1.1", diagDownParents.get("2.2"));
+    assertEquals("1.1", diagDownParents.get("3.3"));
   }
 
   @Test
   public void whenSaveDifferentColorMove_noMerge() {
+    saveMove("1.1", Color.BLUE);
+    saveMove("2.2", Color.BLUE);
+    game.addConnection(Dir.DIAG_DOWN, "2.2", "1.1");
+    game.setGameState(GameState.RED_NEXT);
+    gameRepository.save(game);
 
-    Move move = saveMove("1.1", Color.RED);
-    Move move1 = saveMove("2.2", Color.RED);
-
-    saveFieldChain(move, move1, Dir.DIAG_DOWN);
-
-    MoveRequest moveRequest = new MoveRequest(3, 3, id, "BLUE");
+    MoveRequest moveRequest = new MoveRequest(3, 3, id, "RED");
 
     amobaService.saveMove(moveRequest);
 
-    List<FieldChain> gamesFieldChains = gameRepository.findGameById(id).getFieldChains();
-    FieldChain expectedFieldChain = gamesFieldChains.get(0);
+    List<Move> moves = gameRepository.findGameById(id).getMoves();
+    Map<String, String> diagDownParents = gameRepository.findGameById(id).getDiagDownParents();
 
-    int movesCount = gameRepository.findGameById(id).getMoves().size();
-
-    assertEquals(1, gamesFieldChains.size());
-    assertEquals(2, expectedFieldChain.getMoves().size());
-    assertTrue(checkIfFieldChainContainsMove(expectedFieldChain, "1.1"));
-    assertTrue(checkIfFieldChainContainsMove(expectedFieldChain, "2.2"));
-    assertEquals(3, movesCount);
+    assertEquals(3, moves.size());
+    assertTrue(diagDownParents.containsKey("2.2"));
+    assertTrue(diagDownParents.containsKey("2.2"));
+    assertTrue(diagDownParents.containsKey("3.3"));
+    assertNotEquals("1.1", diagDownParents.get("3.3"));
   }
 
   @Test
   public void whenMoveConnectsTwoExistingFieldChains_MergeIntoOne() {
 
     String[] fieldsDiagDown = {"1.1", "2.2", "4.4", "5.5"};
-    String[] fieldsDiagUp = {"1.5", "2.4", "4.2", "5.1"};
-
-    saveMovesToFieldChains(fieldsDiagDown, Dir.DIAG_DOWN);
-    saveMovesToFieldChains(fieldsDiagUp, Dir.DIAG_UP);
+    for (String field : fieldsDiagDown) {
+      saveMove(field, Color.BLUE);
+    }
+    game.addConnection(Dir.DIAG_DOWN, "2.2", "1.1");
+    game.addConnection(Dir.DIAG_DOWN, "5.5", "4.4");
+    gameRepository.save(game);
 
     MoveRequest moveRequest = new MoveRequest(3, 3, id, "BLUE");
 
-    String status = amobaService.saveMove(moveRequest).getStatus();
+    amobaService.saveMove(moveRequest);
 
-    List<FieldChain> gamesFieldChains = gameRepository.findGameById(id).getFieldChains();
-    FieldChain expectedFieldChain1 = gamesFieldChains.get(0);
-    FieldChain expectedFieldChain2 = gamesFieldChains.get(1);
+    Game game = gameRepository.findGameById(id);
+    Map<String, String> diagDownParents = game.getDiagDownParents();
+    GameState status = game.getGameState();
 
-
-    assertEquals(2, gamesFieldChains.size());
-    assertEquals(5, expectedFieldChain1.getMoves().size());
-    assertEquals(5, expectedFieldChain2.getMoves().size());
-    assertEquals(status, GameState.BLUE_WON.name());
+    assertEquals(5, diagDownParents.size());
+    for (String field : fieldsDiagDown) {
+      assertTrue(diagDownParents.containsKey(field));
+    }
+    assertTrue(diagDownParents.containsKey("3.3"));
+    for (Map.Entry<String, String> connections : diagDownParents.entrySet()) {
+      assertEquals("1.1", connections.getValue());
+    }
+    assertEquals(GameState.BLUE_WON, status);
   }
 
   public Move saveMove(String field, Color color) {
 
     Move move = new Move(field, color, game);
     moveRepository.save(move);
-
     game.addMove(move);
+    for (Dir dir : Dir.values()) {
+      game.addConnection(dir, field, field);
+    }
     gameRepository.save(game);
-
     return move;
-  }
-
-  public void saveFieldChain(Move move, Move move1, Dir dir) {
-
-    FieldChain newFieldChain = new FieldChain(Color.BLUE, dir, game);
-
-    move.addFieldChain(newFieldChain);
-    moveRepository.save(move);
-    move1.addFieldChain(newFieldChain);
-    moveRepository.save(move1);
-
-    newFieldChain.addMove(move);
-    newFieldChain.addMove(move1);
-    fieldChainRepository.save(newFieldChain);
-
-    game.addFieldChain(newFieldChain);
-    gameRepository.save(game);
-  }
-
-  public void saveMovesToFieldChains(String[] fields, Dir dir) {
-
-    List<Move> moves = new ArrayList<>();
-
-    for (String field : fields) {
-      Move move = saveMove(field, Color.BLUE);
-      moves.add(move);
-      if (moves.size() == 2) {
-        saveFieldChain(moves.get(0), moves.get(1), dir);
-        moves.clear();
-      }
-    }
-  }
-
-  public boolean checkIfFieldChainContainsMove(FieldChain fieldChain, String field) {
-
-    for (Move move : fieldChain.getMoves()) {
-
-      if (move.getField().equals(field)) {
-        return true;
-      }
-    }
-    return false;
   }
 }

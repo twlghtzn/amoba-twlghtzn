@@ -5,25 +5,19 @@ import com.twlghtzn.amoba.dto.MoveRequest;
 import com.twlghtzn.amoba.dto.MoveResponse;
 import com.twlghtzn.amoba.dto.MovesView;
 import com.twlghtzn.amoba.exceptionhandling.RequestIncorrectException;
-import com.twlghtzn.amoba.model.FieldChain;
 import com.twlghtzn.amoba.model.Game;
 import com.twlghtzn.amoba.model.Move;
-import com.twlghtzn.amoba.repository.FieldChainRepository;
 import com.twlghtzn.amoba.repository.GameRepository;
 import com.twlghtzn.amoba.repository.MoveRepository;
 import com.twlghtzn.amoba.util.Color;
 import com.twlghtzn.amoba.util.Dir;
 import com.twlghtzn.amoba.util.GameState;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.stream.Collectors;
-import org.hibernate.annotations.NotFound;
-import org.hibernate.annotations.NotFoundAction;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -31,14 +25,11 @@ import org.springframework.stereotype.Service;
 public class AmobaService {
 
   private final MoveRepository moveRepository;
-  private final FieldChainRepository fieldChainRepository;
   private final GameRepository gameRepository;
 
   @Autowired
-  public AmobaService(MoveRepository moveRepository, FieldChainRepository fieldChainRepository,
-                      GameRepository gameRepository) {
+  public AmobaService(MoveRepository moveRepository, GameRepository gameRepository) {
     this.moveRepository = moveRepository;
-    this.fieldChainRepository = fieldChainRepository;
     this.gameRepository = gameRepository;
   }
 
@@ -68,291 +59,119 @@ public class AmobaService {
     Game game = gameRepository.findGameById(id);
     checkGameState(game.getGameState(), color);
 
-    Move move = new Move(valX, valY, color, game);
+    String field = getNameFromPosition(valX, valY);
+    Move move = new Move(field, color, game);
     moveRepository.save(move);
     game.addMove(move);
     gameRepository.save(game);
 
-    saveFieldChainsWithNeighbors(move.getField(), id);
-
-    mergeFieldChains(id, move.getField());
-
-    GameState gameState = checkIfTheresAWinner(game);
+    addMoveToParentLists(move.getField(), id);
+    int movesCount = game.getMoves().size();
+    if (movesCount > 2) {
+      registerParents(move, id);
+      rewireParents(id);
+    }
+    GameState gameState = checkIfTheresAWinner(id);
     game.setGameState(gameState);
     gameRepository.save(game);
 
     return new MoveResponse(gameState.toString());
   }
 
-  public void saveFieldChainsWithNeighbors(String field, String id) {
-
-    Move move = moveRepository.findMoveByGameIdAndField(id, field);
-
+  // move is registered with itself as parent (e.g. key: "1.1", value: "1.1")
+  public void addMoveToParentLists(String field, String id) {
     Game game = gameRepository.findGameById(id);
-
-    List<Map<Dir, Move>> neighboringMoves = getNeighboringSameColorMoves(move, game.getId());
-
-    if (neighboringMoves.size() != 0) {
-
-      FieldChain diagDown = new FieldChain(move.getColor(), Dir.DIAG_DOWN, game);
-      FieldChain diagUp = new FieldChain(move.getColor(), Dir.DIAG_UP, game);
-      FieldChain horiz = new FieldChain(move.getColor(), Dir.HORIZ, game);
-      FieldChain vert = new FieldChain(move.getColor(), Dir.VERT, game);
-
-
-      for (Map<Dir, Move> moveMap : neighboringMoves) {
-
-        if (moveMap.containsKey(Dir.DIAG_DOWN)) {
-
-//            moveMap.get(Dir.DIAG_DOWN).addFieldChain(diagDown);
-//            moveRepository.save(moveMap.get(Dir.DIAG_DOWN));
-            diagDown.addMove(moveMap.get(Dir.DIAG_DOWN));
-
-        } else if (moveMap.containsKey(Dir.DIAG_UP)) {
-
-//            moveMap.get(Dir.DIAG_UP).addFieldChain(diagUp);
-//          moveRepository.save(moveMap.get(Dir.DIAG_UP));
-            diagUp.addMove(moveMap.get(Dir.DIAG_UP));
-
-        } else if (moveMap.containsKey(Dir.HORIZ)) {
-
-//            moveMap.get(Dir.HORIZ).addFieldChain(horiz);
-//          moveRepository.save(moveMap.get(Dir.HORIZ));
-            horiz.addMove(moveMap.get(Dir.HORIZ));
-
-        } else {
-
-//            moveMap.get(Dir.VERT).addFieldChain(vert);
-//          moveRepository.save(moveMap.get(Dir.VERT));
-            vert.addMove(moveMap.get(Dir.VERT));
-
-        }
-      }
-
-      List<FieldChain> fieldChainsToSave = Arrays.asList(diagDown, diagUp, horiz, vert);
-
-      for (FieldChain fieldChain : fieldChainsToSave) {
-
-        if (fieldChain.getMoves().size() != 0) {
-
-          fieldChain.addMove(move);
-          fieldChainRepository.save(fieldChain);
-
-          for (Move moveToSave : fieldChain.getMoves()) {
-
-            moveToSave.addFieldChain(fieldChain);
-            moveRepository.save(moveToSave);
-          }
-
-
-          move.addFieldChain(fieldChain);
-          moveRepository.save(move);
-          game.addFieldChain(fieldChain);
-          gameRepository.save(game);
-
-        }
-      }
+    for (Dir dir : Dir.values()) {
+      game.addConnection(dir, field, field);
     }
-  }
-
-  public void mergeFieldChains(String id, String field) {
-
-    Move newMove = moveRepository.findMoveByGameIdAndField(id, field);
-
-    Game game = gameRepository.findGameById(id);
-
-    List<Move> moves = getNeighboringMovesWithoutDirection(id, newMove);
-
-    List<FieldChain> fieldChains = game.getFieldChains();
-
-    List<FieldChain> fieldChainsToDelete = new ArrayList<>();
-
-    for (Move move : moves) {
-
-      List<FieldChain> fieldChainsOfMove = move.getFieldChains();
-
-      if (fieldChainsOfMove.size() > 1) {
-
-        for (Dir dir : Dir.values()) {
-
-          List<FieldChain> fieldChainsToMerge = new ArrayList<>();
-
-          for (FieldChain fieldChain : fieldChainsOfMove) {
-
-            if (fieldChain.getDirection().equals(dir)) {
-              fieldChainsToMerge.add(fieldChain);
-            }
-          }
-
-          if (fieldChainsToMerge.size() > 1) {
-
-            FieldChain fieldChainToSave = copyMovesToNewFieldChain(fieldChainsToMerge, dir, move.getColor(), game);
-            fieldChainRepository.save(fieldChainToSave);
-            game.addFieldChain(fieldChainToSave);
-            gameRepository.save(game);
-
-            for (FieldChain fieldChainToMerge : fieldChainsToMerge) {
-
-//              move.removeFieldChain(fieldChainToMerge);
-//              moveRepository.save(move);
-              fieldChainToMerge.setMoves(null);
-              fieldChainToMerge.setGame(null);
-              fieldChains.remove(fieldChainToMerge);
-              fieldChainsToDelete.add(fieldChainToMerge);
-            }
-          } else {
-            fieldChainsToMerge.clear();
-          }
-        }
-      }
-    }
-    game.setFieldChains(fieldChains);
     gameRepository.save(game);
-
-    if (fieldChainsToDelete.size() != 0) {
-
-      for (FieldChain fieldChainToDelete : fieldChainsToDelete) {
-        fieldChainRepository.delete(fieldChainToDelete);
-      }
-    }
-
-
-/*    if (fieldChainsToDelete.size() != 0) {
-
-      List<FieldChain> fieldChains = gameRepository.findGameById(id).getFieldChains();
-
-      for (FieldChain fieldChainToDelete : fieldChainsToDelete) {
-
-        fieldChains.remove(fieldChainToDelete);
-      }
-
-      game.setFieldChains(fieldChains);
-      gameRepository.save(game);
-
-      for (FieldChain fieldChainToDelete : fieldChainsToDelete) {
-
-        for (Move move : fieldChainToDelete.getMoves()) {
-
-          move.removeFieldChain(fieldChainToDelete);
-          moveRepository.save(move);
-        }
-
-        fieldChainToDelete.setMoves(null);
-        fieldChainToDelete.setGame(null);
-        fieldChainRepository.delete(fieldChainToDelete);
-      }
-    } */
   }
 
-  public FieldChain copyMovesToNewFieldChain(List<FieldChain> fieldChainsToMerge, Dir dir, Color color, Game game) {
+  public void registerParents(Move newMove, String id) {
+    Game game = gameRepository.findGameById(id);
+    Map<String, Dir> neighboringSameColorMoves = getNeighboringSameColorFields(newMove, id);
 
-    FieldChain newFieldChain = new FieldChain(color, dir, game);
-    fieldChainRepository.save(newFieldChain);
-    List<Move> moves = new ArrayList<>();
+    if (neighboringSameColorMoves.size() != 0) {
+      int newMoveValX = getValXFromField(newMove.getField());
+      int newMoveValY = getValYFromField(newMove.getField());
 
-    for (FieldChain fieldChain : fieldChainsToMerge) {
+      for (Map.Entry<String, Dir> moveEntry : neighboringSameColorMoves.entrySet()) {
+        int moveEntryValX = getValXFromField(moveEntry.getKey());
+        int moveEntryValY = getValYFromField(moveEntry.getKey());
+        Dir dir = moveEntry.getValue();
 
-      List<Move> movesToCopy = fieldChain.getMoves();
-
-      for (Move move : movesToCopy) {
-
-        if (!moves.contains(move)) {
-
-          move.removeFieldChain(fieldChain);
-          move.addFieldChain(newFieldChain);
-          moveRepository.save(move);
-          moves.add(move);
+        // coordinates decide, which move will be the parent
+        if (dir.equals(Dir.VERT)) {
+          // move with smaller Y is parent
+          if (moveEntryValY < newMoveValY) {
+            game.addConnection(dir, newMove.getField(), moveEntry.getKey());
+          } else {
+            game.addConnection(dir, moveEntry.getKey(), newMove.getField());
+          }
+        } else {
+          // move with smaller X is parent
+          if (moveEntryValX < newMoveValX) {
+            game.addConnection(dir, newMove.getField(), moveEntry.getKey());
+          } else {
+            game.addConnection(dir, moveEntry.getKey(), newMove.getField());
+          }
         }
       }
     }
-    newFieldChain.setMoves(moves);
-    fieldChainRepository.save(newFieldChain);
-
-    return newFieldChain;
+    gameRepository.save(game);
   }
 
-  public List<Move> getNeighboringMovesWithoutDirection(String id, Move newMove) {
+  public void rewireParents(String id) {
+    Game game = gameRepository.findGameById(id);
+    List<Map<String, String>> parentsRegister = game.getParents();
 
-    List<Move> moves = new ArrayList<>();
+    for (Map<String, String> connections : parentsRegister) {
 
-    List<Move> sameColorMoves = moveRepository.getMovesByIdAndByColor(id, newMove.getColor().name());
+      for (Map.Entry<String, String> connection : connections.entrySet()) {
 
-    int newMoveValX = newMove.getValXFromName();
-    int newMoveValY = newMove.getValYFromName();
+        String field = connection.getKey();
 
-    for (Move move : sameColorMoves) {
+        for (Map.Entry<String, String> connectionToCorrect : connections.entrySet()) {
+          // in a chain, the move with the smallest X or Y coordinate is the parent of ALL moves in the chain
+          // if a move has another move as parent, but that move has again a parent,
+          // than the first move's parent has to be changed to the second move's parent
+          if (!connectionToCorrect.getKey().equals(field) &&
+              connectionToCorrect.getValue().equals(field)) {
 
-      int moveValX = move.getValXFromName();
-      int moveValY = move.getValYFromName();
-
-      if (moveValX == newMoveValX &&
-          (moveValY == newMoveValY + 1 || moveValY == newMoveValY - 1)) {
-
-        moves.add(move);
-
-      } else if (moveValY == newMoveValY &&
-          (moveValX == newMoveValX + 1 || moveValX == newMoveValX - 1)) {
-
-        moves.add(move);
-
-      } else if ((moveValX == newMoveValX + 1 && moveValY == newMoveValY + 1) ||
-          (moveValX == newMoveValX - 1 && moveValY == newMoveValY - 1)) {
-
-        moves.add(move);
-
-      } else if ((moveValX == newMoveValX + 1 && moveValY == newMoveValY - 1) ||
-          (moveValX == newMoveValX - 1 && moveValY == newMoveValY + 1)) {
-
-        moves.add(move);
-
+            connectionToCorrect.setValue(connection.getValue());
+          }
+        }
       }
     }
-    return moves;
+    gameRepository.save(game);
   }
 
-  public List<Map<Dir, Move>> getNeighboringSameColorMoves(Move newMove, String id) {
-
-    int newMoveValX = newMove.getValXFromName();
-    int newMoveValY = newMove.getValYFromName();
-    List<Move> sameColorMoves = moveRepository.getMovesByIdAndByColor(id, newMove.getColor().name());
-
-    List<Map<Dir, Move>> neighboringSameColorMoves = new ArrayList<>();
+  public Map<String, Dir> getNeighboringSameColorFields(Move newMove, String id) {
+    int newMoveValX = getValXFromField(newMove.getField());
+    int newMoveValY = getValYFromField(newMove.getField());
+    List<Move> sameColorMoves =
+        moveRepository.getMovesByIdAndByColor(id, newMove.getColor().name());
+    Map<String, Dir> neighboringSameColorMoves = new HashMap<>();
 
     for (Move move : sameColorMoves) {
-
-      int moveValX = move.getValXFromName();
-      int moveValY = move.getValYFromName();
+      int moveValX = getValXFromField(move.getField());
+      int moveValY = getValYFromField(move.getField());
 
       if (moveValX == newMoveValX &&
           (moveValY == newMoveValY + 1 || moveValY == newMoveValY - 1)) {
-
-        neighboringSameColorMoves.add(addMoveToMap(Dir.VERT, move));
-
+        neighboringSameColorMoves.put(move.getField(), Dir.VERT);
       } else if (moveValY == newMoveValY &&
           (moveValX == newMoveValX + 1 || moveValX == newMoveValX - 1)) {
-
-        neighboringSameColorMoves.add(addMoveToMap(Dir.HORIZ, move));
-
+        neighboringSameColorMoves.put(move.getField(), Dir.HORIZ);
       } else if ((moveValX == newMoveValX + 1 && moveValY == newMoveValY + 1) ||
           (moveValX == newMoveValX - 1 && moveValY == newMoveValY - 1)) {
-
-        neighboringSameColorMoves.add(addMoveToMap(Dir.DIAG_DOWN, move));
-
+        neighboringSameColorMoves.put(move.getField(), Dir.DIAG_DOWN);
       } else if ((moveValX == newMoveValX + 1 && moveValY == newMoveValY - 1) ||
           (moveValX == newMoveValX - 1 && moveValY == newMoveValY + 1)) {
-
-        neighboringSameColorMoves.add(addMoveToMap(Dir.DIAG_UP, move));
-
+        neighboringSameColorMoves.put(move.getField(), Dir.DIAG_UP);
       }
     }
     return neighboringSameColorMoves;
-  }
-
-  public Map<Dir, Move> addMoveToMap(Dir dir, Move move) {
-
-    Map<Dir, Move> moves = new HashMap<>();
-    moves.put(dir, move);
-    return moves;
   }
 
   public void checkGameState(GameState gameState, Color color) {
@@ -367,17 +186,34 @@ public class AmobaService {
     }
   }
 
-  public GameState checkIfTheresAWinner(Game game) {
+  public GameState checkIfTheresAWinner(String id) {
+    Game game = gameRepository.findGameById(id);
+    List<Map<String, String>> parentsRegister = game.getParents();
+    int counter = 0;
+    String parentField = "none";
 
-    List<FieldChain> fieldChains = fieldChainRepository.findAllByGameId(game.getId());
+    for (Map<String, String> connections : parentsRegister) {
 
-    Optional<FieldChain> optionalFieldChain = fieldChains.stream()
-        .filter(fieldChain1 -> fieldChain1.getMoves().size() > 4)
-        .findFirst();
+      for (Map.Entry<String, String> checkerConnection : connections.entrySet()) {
+        // count how many times a field is registered as parent in a specific direction
+        String field = checkerConnection.getKey();
 
-    if (optionalFieldChain.isPresent()) {
-      FieldChain fieldChain = optionalFieldChain.get();
-      Color winnersColor = fieldChain.getColor();
+        for (Map.Entry<String, String> checkedConnection : connections.entrySet()) {
+
+          if (checkedConnection.getValue().equals(field)) {
+            counter++;
+            parentField = field;
+          }
+        }
+        if (counter < 5) {
+          counter = 0;
+          parentField = "none";
+        }
+      }
+    }
+    if (!parentField.equals("none")) {
+      Move move = moveRepository.findMoveByGameIdAndField(game.getId(), parentField);
+      Color winnersColor = move.getColor();
       if (winnersColor.equals(Color.BLUE)) {
         return GameState.BLUE_WON;
       } else if (winnersColor.equals(Color.RED)) {
@@ -403,18 +239,18 @@ public class AmobaService {
   }
 
   public MovesView generateMovesView(String id) {
-
-    List<Move> moves = moveRepository.findAllByGameId(id);
+    Game game = gameRepository.findGameById(id);
+    List<Move> moves = game.getMoves();
     Map<String, Color> mappedMovesData = new HashMap<>();
 
     for (Move move : moves) {
       mappedMovesData.put(move.getField(), move.getColor());
     }
-    return new MovesView(mappedMovesData);
+    GameState status = game.getGameState();
+    return new MovesView(mappedMovesData, status);
   }
 
   public void checkRequest(MoveRequest moveRequest) {
-
     if (moveRequest.getId() == null) {
       throw new RequestIncorrectException("Id missing");
     } else {
@@ -432,5 +268,25 @@ public class AmobaService {
         !moveRequest.getColor().equals(Color.BLUE.name())) {
       throw new RequestIncorrectException("Invalid color");
     }
+  }
+
+  public int[] getPositionsFromName(String field) {
+    String[] strCoordinates = field.split("\\.");
+    int[] coordinates = new int[2];
+    coordinates[0] = Integer.parseInt(strCoordinates[0]);
+    coordinates[1] = Integer.parseInt(strCoordinates[1]);
+    return coordinates;
+  }
+
+  public int getValXFromField(String field) {
+    return getPositionsFromName(field)[0];
+  }
+
+  public int getValYFromField(String field) {
+    return getPositionsFromName(field)[1];
+  }
+
+  public String getNameFromPosition(int valX, int valY) {
+    return valX + "." + valY;
   }
 }

@@ -114,7 +114,7 @@ public class AmobaServiceTest {
   }
 
   @Test
-  public void whenMoveConnectsTwoExistingFieldChains_MergeIntoOne() {
+  public void whenMoveConnectsTwoExistingFieldChains_MergeIntoOneAndAnnounceWinner() {
     String[] fieldsDiagDown = {"1.1", "2.2", "4.4", "5.5"};
     for (String field : fieldsDiagDown) {
       saveMove(field, Color.BLUE);
@@ -134,6 +134,56 @@ public class AmobaServiceTest {
     assertTrue(diagDownParents.containsKey("3.3"));
     for (Map.Entry<String, String> connections : diagDownParents.entrySet()) {
       assertEquals("1.1", connections.getValue());
+    }
+    assertEquals(GameState.BLUE_WON, status);
+  }
+
+  @Test
+  public void whenMoveConnectsMoreThanFiveFields_announceWinner() {
+    String[] fieldsHoriz = {"2.3", "0.3", "1.3", "6.3", "5.3", "4.3"};
+    for (String field : fieldsHoriz) {
+      saveMove(field, Color.BLUE);
+    }
+    game.addConnection(Dir.HORIZ, "1.3", "0.3");
+    game.addConnection(Dir.HORIZ, "2.3", "0.3");
+    game.addConnection(Dir.HORIZ, "5.3", "4.3");
+    game.addConnection(Dir.HORIZ, "6.3", "4.3");
+    gameRepository.save(game);
+
+    MoveRequest moveRequest = new MoveRequest(3, 3);
+    amobaService.saveMove(moveRequest, id);
+
+    Game game = gameRepository.findGameById(id);
+    Map<String, String> horizParents = game.getHorizConnections();
+    GameState status = game.getGameState();
+
+    assertEquals(7, horizParents.size());
+    for (Map.Entry<String, String> connections : horizParents.entrySet()) {
+      assertEquals("0.3", connections.getValue());
+    }
+    assertEquals(GameState.BLUE_WON, status);
+  }
+
+  @Test
+  public void whenMoveConnectsAChainAndAMove_announceWinner() {
+    String[] fields = {"3.1", "3.2", "3.3", "3.5"};
+    for (String field : fields) {
+      saveMove(field, Color.BLUE);
+    }
+    game.addConnection(Dir.VERT, "3.2", "3.1");
+    game.addConnection(Dir.VERT, "3.3", "3.1");
+    gameRepository.save(game);
+
+    MoveRequest moveRequest = new MoveRequest(3, 4);
+    amobaService.saveMove(moveRequest, id);
+
+    Game game = gameRepository.findGameById(id);
+    Map<String, String> vertParents = game.getVertConnections();
+    GameState status = game.getGameState();
+
+    assertEquals(5, vertParents.size());
+    for (Map.Entry<String, String> connections : vertParents.entrySet()) {
+      assertEquals("3.1", connections.getValue());
     }
     assertEquals(GameState.BLUE_WON, status);
   }

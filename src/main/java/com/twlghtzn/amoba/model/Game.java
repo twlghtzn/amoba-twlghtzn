@@ -51,6 +51,19 @@ public class Game {
     return Arrays.asList(diagDownConnections, diagUpConnections, horizConnections, vertConnections);
   }
 
+  public Map<String, String> getConnectionsByDirection(Dir dir) {
+    switch (dir) {
+      case DIAG_DOWN:
+        return diagDownConnections;
+      case DIAG_UP:
+        return diagUpConnections;
+      case HORIZ:
+        return horizConnections;
+      default:
+        return vertConnections;
+    }
+  }
+
   public boolean isFieldOccupied(String field) {
     return diagDownConnections.containsKey(field);
   }

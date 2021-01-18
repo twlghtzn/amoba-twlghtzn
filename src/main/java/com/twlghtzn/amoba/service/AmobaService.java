@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -93,32 +94,44 @@ public class AmobaService {
 
   public void registerConnectionsWithNeighboringMoves(Move newMove, String id) {
     Game game = gameRepository.findGameById(id);
-    Map<String, Dir> neighboringSameColorMoves = getNeighboringSameColorFields(newMove, id);
+    Map<String, Dir> neighboringSameColorFields = getNeighboringSameColorFields(newMove, id);
+    String newField = newMove.getField();
 
-    if (neighboringSameColorMoves.size() != 0) {
-      int newMoveValX = getValXFromField(newMove.getField());
-      int newMoveValY = getValYFromField(newMove.getField());
+    if (neighboringSameColorFields.size() != 0) {
+      int newMoveValX = getValXFromField(newField);
+      int newMoveValY = getValYFromField(newField);
 
-      for (Map.Entry<String, Dir> moveEntry : neighboringSameColorMoves.entrySet()) {
-        int moveEntryValX = getValXFromField(moveEntry.getKey());
-        int moveEntryValY = getValYFromField(moveEntry.getKey());
-        Dir dir = moveEntry.getValue();
+      for (Map.Entry<String, Dir> neighborField : neighboringSameColorFields.entrySet()) {
+        String neighbor = neighborField.getKey();
+        Dir neighborDir = neighborField.getValue();
+        int neighborValX = getValXFromField(neighbor);
+        int neighborValY = getValYFromField(neighbor);
 
-        // between two neighboring moves coordinates decide, which move will be the parent
-        if (dir.equals(Dir.VERT)) {
-          // move with smaller Y is parent
-          if (moveEntryValY < newMoveValY) {
-            game.addConnection(dir, newMove.getField(), moveEntry.getKey());
-          } else {
-            game.addConnection(dir, moveEntry.getKey(), newMove.getField());
-          }
+        Map<String, String> connections = game.getConnectionsByDirection(neighborDir);
+
+        // between two fields coordinates decide, which will be the parent
+        if ((neighborDir.equals(Dir.VERT) && neighborValY < newMoveValY) ||
+            (!neighborDir.equals(Dir.VERT) && neighborValX < newMoveValX)) {
+          // neighbor will be parent, neighbor is alone or is child - we get itself or it's parent as parent
+          game.addConnection(neighborDir, newField, connections.get(neighbor));
         } else {
-          // move with smaller X is parent
-          if (moveEntryValX < newMoveValX) {
-            game.addConnection(dir, newMove.getField(), moveEntry.getKey());
-          } else {
-            game.addConnection(dir, moveEntry.getKey(), newMove.getField());
+          // new field will be parent, neighbor is alone or is parent
+          game.addConnection(neighborDir, neighbor, newField);
+
+          // we have to register fields that have neighbor as parent
+          List<String> neighborChildren = connections.entrySet().stream()
+              .filter(field -> field.getValue().equals(neighbor))
+              .map(Map.Entry::getKey)
+              .collect(Collectors.toList());
+
+          // if a neighbor is parent for a field besides itself,
+          // all it's children also has to get new field for parent
+          if (neighborChildren.size() > 1) {
+            for (String child : neighborChildren) {
+              game.addConnection(neighborDir, child, newField);
+            }
           }
+          neighborChildren.clear();
         }
       }
     }
@@ -187,7 +200,7 @@ public class AmobaService {
         // count how many times a field is registered as parent in a specific direction
         String field = move.getField();
         long count = connections.entrySet().stream()
-            .filter(c -> c.getValue().equals(field))
+            .filter(connection -> connection.getValue().equals(field))
             .count();
 
         if (count >= 5) {

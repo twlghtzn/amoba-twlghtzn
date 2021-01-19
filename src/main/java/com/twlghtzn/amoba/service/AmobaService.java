@@ -64,8 +64,7 @@ public class AmobaService {
 
     addMoveToConnectionsLists(field, id);
     if (game.getMoves().size() > 2) {
-      registerConnectionsWithNeighboringMoves(move, id);
-      rewireParents(id);
+      manageConnections(move, id);
     }
     gameState = checkIfTheresAWinner(id, color);
     game.setGameState(gameState);
@@ -92,8 +91,7 @@ public class AmobaService {
     gameRepository.save(game);
   }
 
-  public void registerConnectionsWithNeighboringMoves(Move newMove, String id) {
-    Game game = gameRepository.findGameById(id);
+  public void manageConnections(Move newMove, String id) {
     Map<String, Dir> neighboringSameColorFields = getNeighboringSameColorFields(newMove, id);
     String newField = newMove.getField();
 
@@ -107,53 +105,37 @@ public class AmobaService {
         int neighborValX = getValXFromField(neighbor);
         int neighborValY = getValYFromField(neighbor);
 
-        Map<String, String> connections = game.getConnectionsByDirection(neighborDir);
-
         // between two fields coordinates decide, which will be the parent
         if ((neighborDir.equals(Dir.VERT) && neighborValY < newMoveValY) ||
             (!neighborDir.equals(Dir.VERT) && neighborValX < newMoveValX)) {
-          // neighbor will be parent, neighbor is alone or is child - we get itself or it's parent as parent
-          game.addConnection(neighborDir, newField, connections.get(neighbor));
+          // neighbor will be parent, neighbor is alone or is child - we get itself or its parent as parent
+          // parameter order! 1st: field, 2nd: parent
+          registerFieldWithParent(newField, neighbor, id, neighborDir);
         } else {
           // new field will be parent, neighbor is alone or is parent
-          game.addConnection(neighborDir, neighbor, newField);
-
-          // we have to register fields that have neighbor as parent
-          List<String> neighborChildren = connections.entrySet().stream()
-              .filter(field -> field.getValue().equals(neighbor))
-              .map(Map.Entry::getKey)
-              .collect(Collectors.toList());
-
-          // if a neighbor is parent for a field besides itself,
-          // all it's children also has to get new field for parent
-          if (neighborChildren.size() > 1) {
-            for (String child : neighborChildren) {
-              game.addConnection(neighborDir, child, newField);
-            }
-          }
-          neighborChildren.clear();
+          // parameter order! 1st: field, 2nd: parent
+          registerFieldWithParent(neighbor, newField, id, neighborDir);
         }
       }
     }
-    gameRepository.save(game);
   }
 
-  // in a chain, the move with the smallest X or Y coordinate is the parent of ALL moves in the chain
-  // if a move has another move as parent, but that move again has an other move as parent,
-  // then the first move's parent has to be changed to the second move's parent
-  public void rewireParents(String id) {
+  public void registerFieldWithParent(String field, String parent, String id, Dir dir) {
     Game game = gameRepository.findGameById(id);
-    List<Map<String, String>> parentsRegister = game.getConnections();
+    Map<String, String> connections = game.getConnectionsByDirection(dir);
 
-    for (Map<String, String> connections : parentsRegister) {
+    game.addConnection(dir, field, connections.get(parent));
 
-      for (Map.Entry<String, String> connection : connections.entrySet()) {
-        String field = connection.getKey();
-        String parent = connection.getValue();
+    // get field's children
+    List<String> children = connections.entrySet().stream()
+        .filter(f -> f.getValue().equals(field))
+        .map(Map.Entry::getKey)
+        .collect(Collectors.toList());
 
-        if (!parent.equals(field)) {
-          connection.setValue(connections.get(parent));
-        }
+    // field's children also has to get field's parent for parent
+    if (children.size() > 0) {
+      for (String child : children) {
+        game.addConnection(dir, child, connections.get(field));
       }
     }
     gameRepository.save(game);

@@ -72,19 +72,19 @@ public class Game {
     moves.add(move);
   }
 
-  public void addConnection(Dir dir, String key, String value) {
+  public void addConnection(Dir dir, String field, String parent) {
     switch (dir) {
       case DIAG_DOWN:
-        diagDownConnections.put(key, value);
+        diagDownConnections.put(field, parent);
         break;
       case DIAG_UP:
-        diagUpConnections.put(key, value);
+        diagUpConnections.put(field, parent);
         break;
       case HORIZ:
-        horizConnections.put(key, value);
+        horizConnections.put(field, parent);
         break;
       case VERT:
-        vertConnections.put(key, value);
+        vertConnections.put(field, parent);
     }
   }
 }
